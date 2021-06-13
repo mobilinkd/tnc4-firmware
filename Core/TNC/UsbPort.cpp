@@ -27,7 +27,7 @@ extern "C" void cdc_receive(const uint8_t* buf, uint32_t len)
     if (getUsbPort()->queue() != 0)
     {
         // This should always succeed.
-        if (osMessageQueuePut(getUsbPort()->queue(), buf, 0, 0) == osOK)
+        if (osMessageQueuePut(getUsbPort()->queue(), &buf, 0, 0) == osOK)
         {
             return;
         }
@@ -66,7 +66,7 @@ void UsbPort::add_char(uint8_t c)
             break;
         case FEND:
             frame_->source(frame_->source() & 7);
-            osMessageQueuePut(ioEventQueueHandle, frame_, 0,
+            osMessageQueuePut(ioEventQueueHandle, &frame_, 0,
                 osWaitForever);
             frame_ = hdlc::acquire_wait();
             state_ = WAIT_FBEGIN;
@@ -112,7 +112,7 @@ void UsbPort::run()
     while (true) {
     	UsbCdcRxBuffer_t* usbCdcRxBuffer;
         auto status = osMessageQueueGet(queue(), &usbCdcRxBuffer, 0, osWaitForever);
-        if (status != osEventMessage) {
+        if (status != osOK) {
             continue;
         }
 
@@ -173,7 +173,7 @@ void UsbPort::init()
 
     mutex_ = osMutexNew(&usbMutex_attribures);
 
-    cdcTaskHandle_ = osThreadNew(startCDCTask, NULL, &cdcTask_attributes);
+    cdcTaskHandle_ = osThreadNew(startCDCTask, this, &cdcTask_attributes);
 }
 
 bool UsbPort::open()

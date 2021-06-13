@@ -70,7 +70,7 @@ struct Encoder : public ::mobilinkd::Encoder
         while (running_) {
             state_ = state_type::STATE_IDLE;
             IoFrame* frame;
-            osStatus status = osMessageQueueGet(input_, &frame, 0, osWaitForever);
+            osStatus_t status = osMessageQueueGet(input_, &frame, 0, osWaitForever);
             if (status == osOK) {
                 if (frame == nullptr) return;
                 tx_delay_ = kiss::settings().txdelay;
@@ -85,8 +85,7 @@ struct Encoder : public ::mobilinkd::Encoder
                     send_raw(IDLE);
                     send_delay_ = true;
                     if (!duplex_) {
-                      osMessageQueuePut(audioInputQueueHandle, (void*) audio::DEMODULATOR, 0,
-                        osWaitForever);
+                    	sendAudioMessage(audio::DEMODULATOR, osWaitForever);
                     }
                 }
             }
@@ -207,7 +206,7 @@ struct Encoder : public ::mobilinkd::Encoder
                 return;
             }
             if (!duplex_) {
-                osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0, osWaitForever);
+            	sendAudioMessage(audio::IDLE, osWaitForever);
             }
             send_delay();
             send_delay_ = false;

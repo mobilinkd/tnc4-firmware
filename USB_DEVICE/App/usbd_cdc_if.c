@@ -257,9 +257,9 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
         if (length == 0) {
           USBD_SetupReqTypedef* req = (USBD_SetupReqTypedef*) pbuf;
           if ((req->wValue & 1)) {
-            osMessageQueuePut(ioEventQueueHandle, (void*) CMD_USB_CDC_CONNECT, 0, 0);
+            sendMessage(CMD_USB_CDC_CONNECT);
           } else {
-            osMessageQueuePut(ioEventQueueHandle, (void*) CMD_USB_CDC_DISCONNECT, 0, 0);
+            sendMessage(CMD_USB_CDC_DISCONNECT);
           }
         }
         break;
@@ -295,7 +295,7 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
 	if (!cdc_connected) {
-		osMessageQueuePut(ioEventQueueHandle, (void*) CMD_USB_CDC_CONNECT, 0, 0);
+		sendMessage(CMD_USB_CDC_CONNECT);
 	}
 	cdc_receive(Buf, *Len);
 	return (USBD_OK);

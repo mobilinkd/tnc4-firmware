@@ -10,6 +10,7 @@
 #include "Modulator.hpp"
 #include "HDLCEncoder.hpp"
 #include "AFSKTestTone.hpp"
+#include "main.h"
 #ifndef NUCLEOTNC
 #include "KissHardware.h"
 #endif
@@ -49,13 +50,13 @@ namespace mobilinkd { namespace tnc { namespace kiss {
 const char FIRMWARE_VERSION[] = "2.1.9";
 const char HARDWARE_VERSION[] = "Mobilinkd NucleoTNC";
 #else
-const char FIRMWARE_VERSION[] = "2.1.9";
-const char HARDWARE_VERSION[] = "Mobilinkd TNC3 2.1.1";
+const char FIRMWARE_VERSION[] = "2.2.0";
+const char HARDWARE_VERSION[] = "Mobilinkd TNC3+ Rev A";
 #endif
 
 Hardware& settings()
 {
-    static Hardware instance __attribute__((section(".bss3")));
+    static Hardware instance __attribute__((section(".safedata")));
     return instance;
 }
 
@@ -196,9 +197,10 @@ void Hardware::announce_input_settings()
     reply8(hardware::GET_INPUT_TWIST, rx_twist);
 }
 
-AFSKTestTone& getAFSKTestTone() {
-     static AFSKTestTone testTone;
-     return testTone;
+
+AFSKTestTone& getAFSKTestTone()
+{
+    return testTone;
 }
 
 void Hardware::handle_request(hdlc::IoFrame* frame)
@@ -229,51 +231,41 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
     case hardware::POLL_INPUT_LEVEL:
         TNC_DEBUG("POLL_INPUT_VOLUME");
         reply8(hardware::POLL_INPUT_LEVEL, 0);
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::POLL_AMPLIFIED_INPUT_LEVEL, 0,
-            osWaitForever);
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::DEMODULATOR, 0,
-            osWaitForever);
+        sendAudioMessage(audio::POLL_AMPLIFIED_INPUT_LEVEL, osWaitForever);
+        sendAudioMessage(audio::DEMODULATOR, osWaitForever);
         break;
     case hardware::STREAM_INPUT_LEVEL:
         TNC_DEBUG("STREAM_INPUT_VOLUME");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_AMPLIFIED_INPUT_LEVEL, 0,
-            osWaitForever);
+        sendAudioMessage(audio::STREAM_AMPLIFIED_INPUT_LEVEL, osWaitForever);
         break;
     case hardware::GET_BATTERY_LEVEL:
       TNC_DEBUG("GET_BATTERY_LEVEL");
-      osMessageQueuePut(audioInputQueueHandle, (void*) audio::POLL_BATTERY_LEVEL, 0,
-          osWaitForever);
-      osMessageQueuePut(audioInputQueueHandle, (void*) audio::DEMODULATOR, 0,
-          osWaitForever);
+      sendAudioMessage(audio::POLL_BATTERY_LEVEL, osWaitForever);
+      sendAudioMessage(audio::DEMODULATOR, osWaitForever);
         break;
     case hardware::SEND_MARK:
         TNC_DEBUG("SEND_MARK");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-            osWaitForever);
+        sendAudioMessage(audio::IDLE, osWaitForever);
         getAFSKTestTone().mark();
         break;
     case hardware::SEND_SPACE:
         TNC_DEBUG("SEND_SPACE");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-            osWaitForever);
+        sendAudioMessage(audio::IDLE, osWaitForever);
         getAFSKTestTone().space();
         break;
     case hardware::SEND_BOTH:
         TNC_DEBUG("SEND_BOTH");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-            osWaitForever);
+        sendAudioMessage(audio::IDLE, osWaitForever);
         getAFSKTestTone().both();
         break;
     case hardware::STOP_TX:
         TNC_DEBUG("STOP_TX");
         getAFSKTestTone().stop();
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-            osWaitForever);
+        sendAudioMessage(audio::IDLE, osWaitForever);
         break;
     case hardware::RESET:
         TNC_DEBUG("RESET");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::DEMODULATOR, 0,
-            osWaitForever);
+        sendAudioMessage(audio::DEMODULATOR, osWaitForever);
         break;
     case hardware::SET_OUTPUT_GAIN:
         output_gain = *it << 8;
@@ -294,30 +286,24 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
 
     case hardware::POLL_INPUT_TWIST:
       TNC_DEBUG("POLL_INPUT_TWIST");
-      osMessageQueuePut(audioInputQueueHandle, (void*) audio::POLL_TWIST_LEVEL, 0,
-          osWaitForever);
-      osMessageQueuePut(audioInputQueueHandle, (void*) audio::DEMODULATOR, 0,
-          osWaitForever);
+      sendAudioMessage(audio::POLL_TWIST_LEVEL, osWaitForever);
+      sendAudioMessage(audio::DEMODULATOR, osWaitForever);
         break;
 
     case hardware::STREAM_AVG_INPUT_TWIST:
       TNC_DEBUG("STREAM_AVG_INPUT_TWIST");
-      osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_AVERAGE_TWIST_LEVEL, 0,
-          osWaitForever);
+      sendAudioMessage(audio::STREAM_AVERAGE_TWIST_LEVEL, osWaitForever);
         break;
 
     case hardware::STREAM_INPUT_TWIST:
       TNC_DEBUG("STREAM_INPUT_TWIST");
-      osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_INSTANT_TWIST_LEVEL, 0,
-          osWaitForever);
+      sendAudioMessage(audio::STREAM_INSTANT_TWIST_LEVEL, osWaitForever);
         break;
 
     case hardware::ADJUST_INPUT_LEVELS:
         TNC_DEBUG("ADJUST_INPUT_LEVELS");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::AUTO_ADJUST_INPUT_LEVEL, 0,
-            osWaitForever);
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_AMPLIFIED_INPUT_LEVEL, 0,
-            osWaitForever);
+        sendAudioMessage(audio::AUTO_ADJUST_INPUT_LEVEL, osWaitForever);
+        sendAudioMessage(audio::STREAM_AMPLIFIED_INPUT_LEVEL, osWaitForever);
         break;
 
     case hardware::SET_INPUT_GAIN:
@@ -326,10 +312,8 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
         input_gain += *it;
         TNC_DEBUG("SET_INPUT_GAIN = %d", input_gain);
         update_crc();
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::UPDATE_SETTINGS, 0,
-            osWaitForever);
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_AMPLIFIED_INPUT_LEVEL, 0,
-            osWaitForever);
+        sendAudioMessage(audio::UPDATE_SETTINGS, osWaitForever);
+        sendAudioMessage(audio::STREAM_AMPLIFIED_INPUT_LEVEL, osWaitForever);
         [[fallthrough]];
     case hardware::GET_INPUT_GAIN:
         TNC_DEBUG("GET_INPUT_GAIN");
@@ -340,10 +324,8 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
         TNC_DEBUG("SET_INPUT_TWIST");
         rx_twist = *it;
         update_crc();
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::UPDATE_SETTINGS, 0,
-            osWaitForever);
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_AMPLIFIED_INPUT_LEVEL, 0,
-            osWaitForever);
+        sendAudioMessage(audio::UPDATE_SETTINGS, osWaitForever);
+        sendAudioMessage(audio::STREAM_AMPLIFIED_INPUT_LEVEL, osWaitForever);
         [[fallthrough]];
     case hardware::GET_INPUT_TWIST:
         TNC_DEBUG("GET_INPUT_TWIST");
@@ -365,8 +347,7 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
 
     case hardware::STREAM_AMPLIFIED_INPUT:
         TNC_DEBUG("STREAM_AMPLIFIED_INPUT");
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::STREAM_AMPLIFIED_INPUT_LEVEL, 0,
-            osWaitForever);
+        sendAudioMessage(audio::STREAM_AMPLIFIED_INPUT_LEVEL, osWaitForever);
         break;
 
     case hardware::GET_TXDELAY:
@@ -415,10 +396,10 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
         TNC_DEBUG("SET_PTT_CHANNEL");
         if (*it) {
             options &= ~KISS_OPTION_PTT_SIMPLEX;
-            osMessageQueuePut(ioEventQueueHandle, CMD_SET_PTT_MULTIPLEX, 0, osWaitForever);
+            sendMessage2(CMD_SET_PTT_MULTIPLEX, osWaitForever);
         } else {
             options |= KISS_OPTION_PTT_SIMPLEX;
-            osMessageQueuePut(ioEventQueueHandle, CMD_SET_PTT_SIMPLEX, 0, osWaitForever);
+            sendMessage2(CMD_SET_PTT_SIMPLEX, osWaitForever);
         }
         update_crc();
         break;
@@ -530,8 +511,7 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
         // GET_API_VERSION must always come first.
         reply16(hardware::GET_API_VERSION, hardware::KISS_API_VERSION);
 #ifndef NUCLEOTNC
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::POLL_BATTERY_LEVEL, 0,
-            osWaitForever);
+        sendAudioMessage(audio::POLL_BATTERY_LEVEL, osWaitForever);
         reply8(hardware::GET_USB_POWER_OFF, options & KISS_OPTION_VIN_POWER_OFF ? 1 : 0);
         reply8(hardware::GET_USB_POWER_ON, options & KISS_OPTION_VIN_POWER_ON ? 1 : 0);
         reply(hardware::GET_MAC_ADDRESS, mac_address, sizeof(mac_address));
@@ -544,10 +524,8 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
             hardware::CAP_ADJUST_INPUT|
             hardware::CAP_DFU_FIRMWARE);
 #endif
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::POLL_TWIST_LEVEL, 0,
-            osWaitForever);
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-            osWaitForever);
+        sendAudioMessage(audio::POLL_TWIST_LEVEL, osWaitForever);
+        sendAudioMessage(audio::IDLE, osWaitForever);
         reply(hardware::GET_FIRMWARE_VERSION, (uint8_t*) FIRMWARE_VERSION,
           sizeof(FIRMWARE_VERSION) - 1);
         reply(hardware::GET_HARDWARE_VERSION, (uint8_t*) HARDWARE_VERSION,
@@ -614,9 +592,8 @@ void Hardware::handle_ext_request(hdlc::IoFrame* frame) {
         {
             ERROR("Unsupported modem type");
         }
-        osMessageQueuePut(hdlcOutputQueueHandle, 0, 0, osWaitForever);      // Reset encoder/modulator.
-        osMessageQueuePut(audioInputQueueHandle, (void*) audio::UPDATE_SETTINGS, 0,
-            osWaitForever); // Reset decoder/demodulator.
+        sendTransmitMessage(0, osWaitForever);      // Reset encoder/modulator.
+        sendAudioMessage(audio::UPDATE_SETTINGS, osWaitForever); // Reset decoder/demodulator.
         [[fallthrough]];
     case hardware::EXT_GET_MODEM_TYPE[1]:
         TNC_DEBUG("EXT_GET_MODEM_TYPE");

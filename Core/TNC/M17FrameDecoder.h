@@ -155,7 +155,7 @@ struct M17FrameDecoder
 
     enum class State {LSF, STREAM, BASIC_PACKET, FULL_PACKET};
     enum class SyncWordType { LSF, STREAM, PACKET, RESERVED };
-    enum class DecodeResult { FAIL, OK, EOS };
+    enum class DecodeResult { FAIL, OK, EOS, INCOMPLETE };
 
     State state_ = State::LSF;
 
@@ -205,6 +205,8 @@ struct M17FrameDecoder
 
     ~M17FrameDecoder()
     {}
+
+    State state() const { return state_; }
 
     void reset() { state_ = State::LSF; }
 
@@ -275,6 +277,9 @@ struct M17FrameDecoder
         for (auto c : current_lsf) crc_(c);
         auto checksum = crc_.get();
         INFO("LSF crc = %04x", checksum);
+#ifdef KISS_LOGGING
+        dump(current_lsf);
+#endif
 
         if (checksum == 0)
         {
@@ -351,7 +356,7 @@ struct M17FrameDecoder
 
         lich_segments |= (1 << fragment_number);        // Indicate segment received.
         INFO("got segment %d, have %02x", int(fragment_number), int(lich_segments));
-        if (lich_segments != 0x3F) return DecodeResult::FAIL;        // More to go...
+        if (lich_segments != 0x3F) return DecodeResult::INCOMPLETE;        // More to go...
 
         crc_.reset();
         for (auto c : output.lich) crc_(c);
@@ -375,7 +380,7 @@ struct M17FrameDecoder
         lich_segments = 0;
         output.lich.fill(0);
         ber = 128;
-        return DecodeResult::FAIL;
+        return DecodeResult::INCOMPLETE;
     }
 
     [[gnu::noinline]]

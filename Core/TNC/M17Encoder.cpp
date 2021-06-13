@@ -24,10 +24,6 @@ typedef StaticQueue_t osStaticMessageQDef_t;
 
 static uint32_t encoderTaskBuffer[ 256 ];
 static osStaticThreadDef_t encoderTaskControlBlock;
-static uint8_t m17EncoderInputQueueBuffer[ 3 * sizeof( uint32_t ) ];
-static osStaticMessageQDef_t m17EncoderInputQueueControlBlock;
-static uint8_t m17EncoderOutputQueueBuffer[ 3 * sizeof( uint32_t ) ];
-static osStaticMessageQDef_t m17EncoderOutputQueueControlBlock;
 
 static const osThreadAttr_t encoderTask_attributes = {
   .name = "encoderTask",
@@ -39,7 +35,6 @@ static const osThreadAttr_t encoderTask_attributes = {
 };
 
 extern osMessageQueueId_t m17EncoderInputQueueHandle;
-extern osMessageQueueId_t m17EncoderOutputQueueHandle;
 
 extern RNG_HandleTypeDef hrng;
 extern IWDG_HandleTypeDef hiwdg;
@@ -79,7 +74,7 @@ void M17Encoder::run()
 
     osThreadResume(encoderTaskHandle);
 
-    auto start = osKernelSysTick();
+    auto start = osKernelGetTickCount();
     int32_t delay_ms = 0;
 
     state = State::IDLE;
@@ -99,18 +94,18 @@ void M17Encoder::run()
             {
             case 0x00: // Basic packet data
                 delay_ms = ((frame->size() / 25) + 1) * 40;
-                start = osKernelSysTick();
+                start = osKernelGetTickCount();
                 process_packet(frame, FrameType::BASIC_PACKET);
                 break;
             case 0x10: // Encapsulated packet data
                 delay_ms = (frame->size() / 25) * 40;
-                start = osKernelSysTick();
+                start = osKernelGetTickCount();
                 process_packet(frame, FrameType::FULL_PACKET);
                 break;
             case 0x20: // Voice stream
                 if (back2back) delay_ms += 40;
                 else delay_ms = 80 + tnc::kiss::settings().txdelay * 10;
-                start = osKernelSysTick();
+                start = osKernelGetTickCount();
                 process_stream(frame, FrameType::VOICE_STREAM);
                 break;
             default:
@@ -139,7 +134,7 @@ void M17Encoder::run()
             }
             else
             {
-                int duration = osKernelSysTick() - start;
+                int duration = osKernelGetTickCount() - start;
                 if (duration >= delay_ms) delay_ms = 0;
                 else delay_ms -= duration;
                 INFO("Slack time = %lums", delay_ms);
@@ -208,7 +203,25 @@ void M17Encoder::process_stream(tnc::hdlc::IoFrame* frame, FrameType type)
         if (frame->size() == 30)    // Ignore anything but a 30-byte LSF.
         {
             // todo: check for stream frame type.
-            if (!back2back) send_preamble();
+            if (!back2back)
+            {
+            	auto start = osKernelGetTickCount();
+            	auto count = osMessageQueueGetCount(input_queue);
+            	while (count < 3)
+            	{
+            		if (osKernelGetTickCount() - start < 800)
+            		{
+            			osDelay(40);
+            		}
+            		else
+            		{
+            			WARN("queue depth low");
+            			break;
+            		}
+            		count = osMessageQueueGetCount(input_queue);
+            	}
+            	send_preamble();
+            }
             create_link_setup(frame, type);
             release(frame);
             send_link_setup();
@@ -240,7 +253,7 @@ void M17Encoder::send_preamble()
     for (size_t i = 0; i != 48; ++i) frame->push_back(0x77);
     auto status = osMessageQueuePut(
         m17EncoderInputQueueHandle,
-        frame, 0,
+        &frame, 0,
         osWaitForever);
     if (status != osOK)
     {
@@ -264,7 +277,7 @@ void M17Encoder::send_link_setup()
 
     auto status = osMessageQueuePut(
         m17EncoderInputQueueHandle,
-        frame, 0,
+        &frame, 0,
         osWaitForever);
     if (status != osOK)
     {
@@ -335,7 +348,7 @@ void M17Encoder::send_packet_frame(const std::array<uint8_t, 26>& packet_frame)
 
     auto status = osMessageQueuePut(
         m17EncoderInputQueueHandle,
-        frame, 0,
+        &frame, 0,
         osWaitForever);
     if (status != osOK)
     {
@@ -373,7 +386,7 @@ void M17Encoder::send_stream(tnc::hdlc::IoFrame* frame, FrameType)
 
     auto status = osMessageQueuePut(
         m17EncoderInputQueueHandle,
-        frame, 0,
+        &frame, 0,
         osWaitForever);
     if (status != osOK)
     {
@@ -386,7 +399,7 @@ void M17Encoder::create_link_setup(tnc::hdlc::IoFrame* frame, FrameType type)
 {
     using namespace mobilinkd::tnc::kiss;
 
-    const LinkSetupFrame::call_t SRC = {'M','B','L','K','D','T','N','C','3',0};
+    const LinkSetupFrame::call_t SRC = {'M','L','-','T','N','C','3','+',0};
 
     switch (type)
     {
@@ -394,8 +407,8 @@ void M17Encoder::create_link_setup(tnc::hdlc::IoFrame* frame, FrameType type)
         {
             current_lsf.fill(0);
             auto src = LinkSetupFrame::encode_callsign(SRC);
-            std::copy(src.begin(), src.end(), current_lsf.begin());
-            std::fill(current_lsf.begin() + 6, current_lsf.begin() + 12, 0xff);
+            std::copy(src.begin(), src.end(), current_lsf.begin() + 6);
+            std::fill(current_lsf.begin(), current_lsf.begin() + 6, 0xff);
             current_lsf[13] = 0x02;
             crc.reset();
             for (size_t i = 0; i != 28; ++i) crc(current_lsf[i]);
@@ -472,7 +485,8 @@ void M17Encoder::updateModulator() {}
 void M17Encoder::stop()
 {
     state = State::INACTIVE;
-    if (osMessageQueuePut(input_queue, 0, 0, osWaitForever) != osOK)
+    void* stop = nullptr;
+    if (osMessageQueuePut(input_queue, &stop, 0, osWaitForever) != osOK)
     {
         CxxErrorHandler();
     }
@@ -514,7 +528,7 @@ bool M17Encoder::do_csma() {
 /*
  * The encoder task is responsible for feeding symbols to the M17 modulator.
  */
-void M17Encoder::encoderTask(void const*)
+void M17Encoder::encoderTask(void*)
 {
     using tnc::hdlc::IoFrame;
     using tnc::hdlc::release;

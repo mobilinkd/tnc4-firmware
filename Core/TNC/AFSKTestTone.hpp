@@ -6,6 +6,7 @@
 #include "cmsis_os2.h"
 
 extern "C" void startAfskToneTask(void* arg);
+extern "C" void* testTonePtr;
 
 namespace mobilinkd { namespace tnc {
 
@@ -17,11 +18,16 @@ struct AFSKTestTone
     void space();
     void both();
     void stop();
-    void fill() const;
+    void fill();
     State state() const { return state_; }
 
-    State state_{State::NONE};
-    osThreadId_t testToneTask_{0};
+    State state_ = State::NONE;
+    State current_state_ = State::SPACE;
+    uint32_t random_ = 0;
+    uint32_t counter_ = 0;
+    uint32_t lfsr_ = 0;
 };
+
+extern AFSKTestTone testTone;
 
 }} // mobilinkd::tnc

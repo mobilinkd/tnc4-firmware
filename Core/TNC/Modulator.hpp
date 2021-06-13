@@ -16,6 +16,9 @@ extern osMessageQId dacOutputQueueHandle;
 extern TIM_HandleTypeDef htim7;
 extern DAC_HandleTypeDef hdac1;
 
+extern "C" osStatus_t sendTransmitMessage(void* frame, uint32_t timeout);
+extern "C" osStatus_t sendDacMessage(void* frame, uint32_t timeout);
+
 namespace mobilinkd { namespace tnc {
 
 /**

@@ -84,7 +84,7 @@ private:
     using payload_t = std::array<uint8_t, 34>;      // Bytes in the payload of a data frame.
     using frame_t = std::array<uint8_t, 46>;        // M17 frame (without sync word).
 
-    static void encoderTask(void const*);
+    static void encoderTask(void*);
 
     void process_packet(tnc::hdlc::IoFrame*, FrameType type);
     void process_stream(tnc::hdlc::IoFrame*, FrameType type);

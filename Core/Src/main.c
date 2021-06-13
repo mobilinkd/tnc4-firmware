@@ -32,6 +32,7 @@
 #include "KissHardware.h"
 #include "Log.h"
 
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,14 +56,18 @@ typedef StaticSemaphore_t osStaticMutexDef_t;
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
+DMA_HandleTypeDef hdma_adc1;
 
 COMP_HandleTypeDef hcomp1;
 
 CRC_HandleTypeDef hcrc;
 
 DAC_HandleTypeDef hdac1;
+DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c1;
+DMA_HandleTypeDef hdma_i2c1_rx;
+DMA_HandleTypeDef hdma_i2c1_tx;
 
 IWDG_HandleTypeDef hiwdg;
 
@@ -78,10 +83,12 @@ TIM_HandleTypeDef htim7;
 TIM_HandleTypeDef htim8;
 
 UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart3_rx;
+DMA_HandleTypeDef hdma_usart3_tx;
 
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
-uint32_t defaultTaskBuffer[ 128 ];
+uint32_t defaultTaskBuffer[ 256 ];
 osStaticThreadDef_t defaultTaskControlBlock;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
@@ -105,7 +112,7 @@ const osThreadAttr_t ioEventTask_attributes = {
 };
 /* Definitions for audioInputTask */
 osThreadId_t audioInputTaskHandle;
-uint32_t audioInputTaskBuffer[ 512 ];
+uint32_t audioInputTaskBuffer[ 640 ];
 osStaticThreadDef_t audioInputTaskControlBlock;
 const osThreadAttr_t audioInputTask_attributes = {
   .name = "audioInputTask",
@@ -152,7 +159,7 @@ const osMessageQueueAttr_t ioEventQueue_attributes = {
 };
 /* Definitions for serialInputQueue */
 osMessageQueueId_t serialInputQueueHandle;
-uint8_t serialInputQueueBuffer[ 16 * sizeof( uint32_t ) ];
+uint8_t serialInputQueueBuffer[ 16 * sizeof( void* ) ];
 osStaticMessageQDef_t serialInputQueueControlBlock;
 const osMessageQueueAttr_t serialInputQueue_attributes = {
   .name = "serialInputQueue",
@@ -163,7 +170,7 @@ const osMessageQueueAttr_t serialInputQueue_attributes = {
 };
 /* Definitions for serialOutputQueue */
 osMessageQueueId_t serialOutputQueueHandle;
-uint8_t serialOutputQueueBuffer[ 16 * sizeof( uint32_t ) ];
+uint8_t serialOutputQueueBuffer[ 16 * sizeof( void* ) ];
 osStaticMessageQDef_t serialOutputQueueControlBlock;
 const osMessageQueueAttr_t serialOutputQueue_attributes = {
   .name = "serialOutputQueue",
@@ -174,7 +181,7 @@ const osMessageQueueAttr_t serialOutputQueue_attributes = {
 };
 /* Definitions for audioInputQueue */
 osMessageQueueId_t audioInputQueueHandle;
-uint8_t audioInputQueueBuffer[ 4 * sizeof( uint32_t ) ];
+uint8_t audioInputQueueBuffer[ 8 * sizeof( void* ) ];
 osStaticMessageQDef_t audioInputQueueControlBlock;
 const osMessageQueueAttr_t audioInputQueue_attributes = {
   .name = "audioInputQueue",
@@ -196,7 +203,7 @@ const osMessageQueueAttr_t hdlcInputQueue_attributes = {
 };
 /* Definitions for hdlcOutputQueue */
 osMessageQueueId_t hdlcOutputQueueHandle;
-uint8_t hdlcOutputQueueBuffer[ 3 * sizeof( uint32_t ) ];
+uint8_t hdlcOutputQueueBuffer[ 8 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t hdlcOutputQueueControlBlock;
 const osMessageQueueAttr_t hdlcOutputQueue_attributes = {
   .name = "hdlcOutputQueue",
@@ -218,7 +225,7 @@ const osMessageQueueAttr_t dacOutputQueue_attributes = {
 };
 /* Definitions for adcInputQueue */
 osMessageQueueId_t adcInputQueueHandle;
-uint8_t adcInputQueueBuffer[ 3 * sizeof( uint32_t ) ];
+uint8_t adcInputQueueBuffer[ 3 * sizeof( void* ) ];
 osStaticMessageQDef_t adcInputQueueControlBlock;
 const osMessageQueueAttr_t adcInputQueue_attributes = {
   .name = "adcInputQueue",
@@ -229,7 +236,7 @@ const osMessageQueueAttr_t adcInputQueue_attributes = {
 };
 /* Definitions for m17EncoderInputQueue */
 osMessageQueueId_t m17EncoderInputQueueHandle;
-uint8_t m17EncoderInputQueueBuffer[ 3 * sizeof( uint32_t ) ];
+uint8_t m17EncoderInputQueueBuffer[ 3 * sizeof( void* ) ];
 osStaticMessageQDef_t m17EncoderInputQueueControlBlock;
 const osMessageQueueAttr_t m17EncoderInputQueue_attributes = {
   .name = "m17EncoderInputQueue",
@@ -237,17 +244,6 @@ const osMessageQueueAttr_t m17EncoderInputQueue_attributes = {
   .cb_size = sizeof(m17EncoderInputQueueControlBlock),
   .mq_mem = &m17EncoderInputQueueBuffer,
   .mq_size = sizeof(m17EncoderInputQueueBuffer)
-};
-/* Definitions for m17EncoderOuputQueue */
-osMessageQueueId_t m17EncoderOuputQueueHandle;
-uint8_t m17EncoderOuputQueueBuffer[ 3 * sizeof( uint32_t ) ];
-osStaticMessageQDef_t m17EncoderOuputQueueControlBlock;
-const osMessageQueueAttr_t m17EncoderOuputQueue_attributes = {
-  .name = "m17EncoderOuputQueue",
-  .cb_mem = &m17EncoderOuputQueueControlBlock,
-  .cb_size = sizeof(m17EncoderOuputQueueControlBlock),
-  .mq_mem = &m17EncoderOuputQueueBuffer,
-  .mq_size = sizeof(m17EncoderOuputQueueBuffer)
 };
 /* Definitions for usbShutdownTimer */
 osTimerId_t usbShutdownTimerHandle;
@@ -273,20 +269,30 @@ int lost_power = 0;
 int reset_requested = 0;
 char serial_number_64[13] = {0};
 // Make sure it is not overwritten during resets (bss3).
-uint8_t mac_address[6] __attribute__((section(".bss3"))) = {0};
-char error_message[80] __attribute__((section(".bss3"))) = {0};
+uint8_t mac_address[6] __attribute__((section(".safedata")));
+char error_message[80] __attribute__((section(".safedata")));
 // USB power control -- need to renegotiate USB charging in STOP mode.
-int go_back_to_sleep __attribute__((section(".bss3")));
-int stop_now __attribute__((section(".bss3")));
-int charging_enabled __attribute__((section(".bss3")));
-int usb_wake_state __attribute__((section(".bss3")));
+int go_back_to_sleep __attribute__((section(".safedata")));
+int stop_now __attribute__((section(".safedata")));
+int charging_enabled __attribute__((section(".safedata")));
+int usb_wake_state __attribute__((section(".safedata")));
+//uint8_t mac_address[6] = {0};
+//char error_message[80] = {0};
+//// USB power control -- need to renegotiate USB charging in STOP mode.
+//int go_back_to_sleep = 0;
+//int stop_now = 0;
+//int charging_enabled = 0;
+//int usb_wake_state = 0;
+
 int reset_button = 0;
+extern void* testTonePtr;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_COMP1_Init(void);
 static void MX_CRC_Init(void);
@@ -303,7 +309,7 @@ static void MX_IWDG_Init(void);
 static void MX_RTC_Init(void);
 static void MX_ADC1_Init(void);
 void StartDefaultTask(void *argument);
-void startIOEventTask(void* argument);
+extern void startIOEventTask(void *argument);
 extern void startAudioInputTask(void *argument);
 extern void startModulatorTask(void *argument);
 extern void startAfskToneTask(void *argument);
@@ -518,11 +524,33 @@ int main(void)
   // If not a software reset, reset the flags.  This prevents odd behavior
   // during initial power on and hardware resets where SRAM2 may be in an
   // inconsistent state.  During a soft reset, it should be initialized.
+
+  // This essentially tests for uninitialized memory.
+  if (go_back_to_sleep & ~1 || stop_now & ~1 || usb_wake_state & ~1 || charging_enabled & ~1)
+  {
+	  memset(mac_address, 0, 6);
+	  memset(error_message, 0, 80);
+	  go_back_to_sleep = 0;
+	  stop_now = 0;
+	  charging_enabled = 0;
+	  usb_wake_state = 0;
+  }
+
   if (!(RCC->CSR & RCC_CSR_SFTRSTF)) {
 	  go_back_to_sleep = 0;
 	  stop_now = 0;
 	  usb_wake_state = 0;
   }
+
+  if (RCC->CSR & RCC_CSR_BORRSTF)
+  {
+	  go_back_to_sleep = 0;
+	  stop_now = 0;
+	  usb_wake_state = 0;
+	  charging_enabled = 0;
+	  error_message[0] = 0;
+  }
+
   if (RCC->CSR & (RCC_CSR_PINRSTF|RCC_CSR_BORRSTF)) {
 	  reset_button = 1;
   } else {
@@ -548,6 +576,7 @@ int main(void)
 #ifdef KISS_LOGGING
   printf("start\r\n");
   if (error_message[0] != 0) {
+	  error_message[79] = 0;
       printf(error_message);
       error_message[0] = 0;
   }
@@ -556,19 +585,18 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC2_Init();
   MX_COMP1_Init();
   MX_CRC_Init();
   MX_DAC1_Init();
   MX_OPAMP1_Init();
-  MX_OPAMP2_Init();
   MX_RNG_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
   MX_TIM8_Init();
   MX_USART3_UART_Init();
   MX_I2C1_Init();
-  MX_IWDG_Init();
   MX_RTC_Init();
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
@@ -660,31 +688,28 @@ int main(void)
   ioEventQueueHandle = osMessageQueueNew (16, sizeof(uint32_t), &ioEventQueue_attributes);
 
   /* creation of serialInputQueue */
-  serialInputQueueHandle = osMessageQueueNew (16, sizeof(uint32_t), &serialInputQueue_attributes);
+  serialInputQueueHandle = osMessageQueueNew (16, sizeof(void*), &serialInputQueue_attributes);
 
   /* creation of serialOutputQueue */
-  serialOutputQueueHandle = osMessageQueueNew (16, sizeof(uint32_t), &serialOutputQueue_attributes);
+  serialOutputQueueHandle = osMessageQueueNew (16, sizeof(void*), &serialOutputQueue_attributes);
 
   /* creation of audioInputQueue */
-  audioInputQueueHandle = osMessageQueueNew (4, sizeof(uint32_t), &audioInputQueue_attributes);
+  audioInputQueueHandle = osMessageQueueNew (8, sizeof(void*), &audioInputQueue_attributes);
 
   /* creation of hdlcInputQueue */
   hdlcInputQueueHandle = osMessageQueueNew (3, sizeof(uint32_t), &hdlcInputQueue_attributes);
 
   /* creation of hdlcOutputQueue */
-  hdlcOutputQueueHandle = osMessageQueueNew (3, sizeof(uint32_t), &hdlcOutputQueue_attributes);
+  hdlcOutputQueueHandle = osMessageQueueNew (8, sizeof(uint32_t), &hdlcOutputQueue_attributes);
 
   /* creation of dacOutputQueue */
   dacOutputQueueHandle = osMessageQueueNew (128, sizeof(uint8_t), &dacOutputQueue_attributes);
 
   /* creation of adcInputQueue */
-  adcInputQueueHandle = osMessageQueueNew (3, sizeof(uint32_t), &adcInputQueue_attributes);
+  adcInputQueueHandle = osMessageQueueNew (3, sizeof(void*), &adcInputQueue_attributes);
 
   /* creation of m17EncoderInputQueue */
-  m17EncoderInputQueueHandle = osMessageQueueNew (3, sizeof(uint32_t), &m17EncoderInputQueue_attributes);
-
-  /* creation of m17EncoderOuputQueue */
-  m17EncoderOuputQueueHandle = osMessageQueueNew (3, sizeof(uint32_t), &m17EncoderOuputQueue_attributes);
+  m17EncoderInputQueueHandle = osMessageQueueNew (3, sizeof(void*), &m17EncoderInputQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -766,7 +791,7 @@ int main(void)
   modulatorTaskHandle = osThreadNew(startModulatorTask, NULL, &modulatorTask_attributes);
 
   /* creation of testToneTask */
-  testToneTaskHandle = osThreadNew(startAfskToneTask, NULL, &testToneTask_attributes);
+  testToneTaskHandle = osThreadNew(startAfskToneTask, (void*) testTonePtr, &testToneTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -808,19 +833,24 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI
-                              |RCC_OSCILLATORTYPE_HSE;
+                              |RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 40;
+  RCC_OscInitStruct.PLL.PLLM = 3;
+  RCC_OscInitStruct.PLL.PLLN = 30;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -845,9 +875,9 @@ void SystemClock_Config(void)
                               |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_USB
                               |RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_ADC;
   PeriphClkInit.Usart3ClockSelection = RCC_USART3CLKSOURCE_HSI;
-  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_PCLK1;
-  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
-  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
+  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
   PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
   PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_PLLSAI1;
   PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSE;
@@ -855,8 +885,8 @@ void SystemClock_Config(void)
   PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
   PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV2;
   PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV4;
-  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV4;
-  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK|RCC_PLLSAI1_ADC1CLK;
+  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
+  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -885,7 +915,7 @@ static void MX_ADC1_Init(void)
   /** Common config
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
@@ -894,11 +924,15 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.OversamplingMode = DISABLE;
+  hadc1.Init.OversamplingMode = ENABLE;
+  hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_16;
+  hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_2;
+  hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+  hadc1.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
@@ -914,7 +948,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_8;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_92CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -948,7 +982,7 @@ static void MX_ADC2_Init(void)
   /** Common config
   */
   hadc2.Instance = ADC2;
-  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
   hadc2.Init.Resolution = ADC_RESOLUTION_12B;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
@@ -957,11 +991,15 @@ static void MX_ADC2_Init(void)
   hadc2.Init.ContinuousConvMode = DISABLE;
   hadc2.Init.NbrOfConversion = 1;
   hadc2.Init.DiscontinuousConvMode = DISABLE;
-  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc2.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc2.Init.DMAContinuousRequests = DISABLE;
   hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc2.Init.OversamplingMode = DISABLE;
+  hadc2.Init.OversamplingMode = ENABLE;
+  hadc2.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_16;
+  hadc2.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_2;
+  hadc2.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+  hadc2.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
   if (HAL_ADC_Init(&hadc2) != HAL_OK)
   {
     Error_Handler();
@@ -970,7 +1008,7 @@ static void MX_ADC2_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_16;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -1034,9 +1072,12 @@ static void MX_CRC_Init(void)
 
   /* USER CODE END CRC_Init 1 */
   hcrc.Instance = CRC;
-  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
-  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
-  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_DISABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_DISABLE;
+  hcrc.Init.GeneratingPolynomial = 4129;
+  hcrc.Init.CRCLength = CRC_POLYLENGTH_16B;
+  hcrc.Init.InitValue = 0xFFFF;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_BYTE;
   hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
   hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_BYTES;
   if (HAL_CRC_Init(&hcrc) != HAL_OK)
@@ -1076,7 +1117,7 @@ static void MX_DAC1_Init(void)
   /** DAC channel OUT1 config
   */
   sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
-  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
+  sConfig.DAC_Trigger = DAC_TRIGGER_T7_TRGO;
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_DISABLE;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
@@ -1086,6 +1127,7 @@ static void MX_DAC1_Init(void)
   }
   /** DAC channel OUT2 config
   */
+  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
   if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
@@ -1112,7 +1154,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x307075B1;
+  hi2c1.Init.Timing = 0x00000107;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -1136,6 +1178,9 @@ static void MX_I2C1_Init(void)
   {
     Error_Handler();
   }
+  /** I2C Fast mode Plus enable
+  */
+  HAL_I2CEx_EnableFastModePlus(I2C_FASTMODEPLUS_I2C1);
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
@@ -1187,7 +1232,7 @@ static void MX_OPAMP1_Init(void)
 
   /* USER CODE END OPAMP1_Init 1 */
   hopamp1.Instance = OPAMP1;
-  hopamp1.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_LOW;
+  hopamp1.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_HIGH;
   hopamp1.Init.Mode = OPAMP_PGA_MODE;
   hopamp1.Init.NonInvertingInput = OPAMP_NONINVERTINGINPUT_IO0;
   hopamp1.Init.InvertingInput = OPAMP_INVERTINGINPUT_CONNECT_NO;
@@ -1220,7 +1265,7 @@ static void MX_OPAMP2_Init(void)
 
   /* USER CODE END OPAMP2_Init 1 */
   hopamp2.Instance = OPAMP2;
-  hopamp2.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_LOW;
+  hopamp2.Init.PowerSupplyRange = OPAMP_POWERSUPPLY_HIGH;
   hopamp2.Init.Mode = OPAMP_STANDALONE_MODE;
   hopamp2.Init.NonInvertingInput = OPAMP_NONINVERTINGINPUT_IO0;
   hopamp2.Init.InvertingInput = OPAMP_INVERTINGINPUT_IO0;
@@ -1258,6 +1303,28 @@ static void MX_RNG_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN RNG_Init 2 */
+
+  // Code from STM because the HAL is broken for this chip.
+  // https://community.st.com/s/feed/0D53W00000jn7SESAY?t=1619830545851
+
+#define RNG_MAGIC_NUMBER       0x17590ABC  /* Magic Number */
+#define RNG_HTCR_VAL           0x0000AA74  /* HTCR Value */
+
+	__IO uint32_t  HTCR_VALUE=0;
+	//put this after the RNG initializition and before the infinite loop
+	RNG->CR = 0x40F00D40; // config A
+	HAL_Delay(20);
+	/* RNG HTCR value setting 0xAA74 */
+	/*!< magic number must be written immediately before to RNG_HTCRG */
+	RNG->HTCR = RNG_MAGIC_NUMBER;
+	RNG->HTCR = RNG_HTCR_VAL;
+	HTCR_VALUE = 0 ;
+	RNG->HTCR = RNG_MAGIC_NUMBER;
+	HTCR_VALUE = RNG->HTCR;
+	RNG->HTCR = RNG_MAGIC_NUMBER;
+	while ( HTCR_VALUE != RNG_HTCR_VAL); // check that HTCR value is correctly set
+	RNG->CR = 0x00F00D4C; // config A + RNG EN =1, IE=1
+	HAL_Delay(1); /* a delay to wait for CONDRST to take effect */
 
   /* USER CODE END RNG_Init 2 */
 
@@ -1347,13 +1414,13 @@ static void MX_TIM6_Init(void)
   htim6.Instance = TIM6;
   htim6.Init.Prescaler = 0;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 65535;
+  htim6.Init.Period = 2499;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
   {
@@ -1385,13 +1452,13 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 0;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 65535;
+  htim7.Init.Period = 2499;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK)
   {
@@ -1424,9 +1491,9 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 0;
+  htim8.Init.Prescaler = 119;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 65535;
+  htim8.Init.Period = 9999;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -1443,10 +1510,6 @@ static void MX_TIM8_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_OC_Init(&htim8) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
@@ -1456,21 +1519,20 @@ static void MX_TIM8_Init(void)
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_SET;
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
   if (HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_TIMING;
-  if (HAL_TIM_OC_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_OC_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1534,13 +1596,48 @@ static void MX_USART3_UART_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+  if (HAL_UARTEx_EnableFifoMode(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN USART3_Init 2 */
 
   /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+  /* DMA1_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+  /* DMA1_Channel6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
+  /* DMAMUX1_OVR_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMAMUX1_OVR_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMAMUX1_OVR_IRQn);
 
 }
 
@@ -1564,20 +1661,22 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin|BT_SLEEP_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin|VDD_EN_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, BAT_DIV_Pin|PTT_B_Pin|PTT_A_Pin|BAT_CE_Pin
-                          |BT_CMD1_Pin|BT_RESET_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, BAT_DIV_Pin|BAT_CE_Pin|BT_CMD1_Pin|BT_RESET_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOB, PTT_B_Pin|PTT_A_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(BT_WAKE_GPIO_Port, BT_WAKE_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : USB_POWER_Pin BT_STATE1_Pin BT_STATE2_Pin SW_POWER_Pin */
-  GPIO_InitStruct.Pin = USB_POWER_Pin|BT_STATE1_Pin|BT_STATE2_Pin|SW_POWER_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pins : USB_POWER_Pin SW_POWER_Pin */
+  GPIO_InitStruct.Pin = USB_POWER_Pin|SW_POWER_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
@@ -1586,14 +1685,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = TCXO_EN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(TCXO_EN_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : BT_CMD2_Pin BT_CMD3_Pin AUDIO_ATTEN_Pin VDD_EN_Pin
-                           BT_SLEEP_Pin */
-  GPIO_InitStruct.Pin = BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin|VDD_EN_Pin
-                          |BT_SLEEP_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  /*Configure GPIO pins : BT_STATE1_Pin BT_STATE2_Pin */
+  GPIO_InitStruct.Pin = BT_STATE1_Pin|BT_STATE2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : BT_CMD2_Pin BT_CMD3_Pin AUDIO_ATTEN_Pin BT_WAKE_Pin */
+  GPIO_InitStruct.Pin = BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin|BT_WAKE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
@@ -1606,7 +1709,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : OVP_ERROR_Pin */
   GPIO_InitStruct.Pin = OVP_ERROR_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(OVP_ERROR_GPIO_Port, &GPIO_InitStruct);
 
@@ -1616,14 +1719,26 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : BAT_DIV_Pin PTT_B_Pin PTT_A_Pin BAT_CE_Pin
-                           BT_CMD1_Pin BT_RESET_Pin */
-  GPIO_InitStruct.Pin = BAT_DIV_Pin|PTT_B_Pin|PTT_A_Pin|BAT_CE_Pin
-                          |BT_CMD1_Pin|BT_RESET_Pin;
+  /*Configure GPIO pins : BAT_DIV_Pin BAT_CE_Pin BT_CMD1_Pin BT_RESET_Pin */
+  GPIO_InitStruct.Pin = BAT_DIV_Pin|BAT_CE_Pin|BT_CMD1_Pin|BT_RESET_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PTT_B_Pin PTT_A_Pin */
+  GPIO_InitStruct.Pin = PTT_B_Pin|PTT_A_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : VDD_EN_Pin */
+  GPIO_InitStruct.Pin = VDD_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(VDD_EN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA8 */
   GPIO_InitStruct.Pin = GPIO_PIN_8;
@@ -1633,12 +1748,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF0_MCO;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BT_WAKE_Pin */
-  GPIO_InitStruct.Pin = BT_WAKE_Pin;
+  /*Configure GPIO pin : BT_SLEEP_Pin */
+  GPIO_InitStruct.Pin = BT_SLEEP_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(BT_WAKE_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(BT_SLEEP_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : SW_BOOT_Pin */
   GPIO_InitStruct.Pin = SW_BOOT_Pin;
@@ -1809,6 +1924,8 @@ void init_rtc_alarm()
 
 void SysClock48()
 {
+
+	return;
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
@@ -1830,12 +1947,12 @@ void SysClock48()
 
     RCC_OscInitStruct.OscillatorType = 0;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
     RCC_OscInitStruct.PLL.PLLN = 12;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
-    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
-    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
     {
       _Error_Handler(__FILE__, __LINE__);
@@ -1856,6 +1973,7 @@ void SysClock48()
 
 void SysClock72()
 {
+	return;
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
@@ -1875,12 +1993,12 @@ void SysClock72()
 
     RCC_OscInitStruct.OscillatorType = 0;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
     RCC_OscInitStruct.PLL.PLLN = 18;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
-    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
-    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
     {
       _Error_Handler(__FILE__, __LINE__);
@@ -1904,6 +2022,7 @@ void SysClock72()
 
 void SysClock80()
 {
+	return;
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
@@ -1921,12 +2040,12 @@ void SysClock80()
 
     RCC_OscInitStruct.OscillatorType = 0;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
     RCC_OscInitStruct.PLL.PLLN = 20;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
-    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
-    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV4;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
     {
       _Error_Handler(__FILE__, __LINE__);
@@ -1947,6 +2066,7 @@ void SysClock80()
 
 void SysClock4()
 {
+	return;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
     taskENTER_CRITICAL();
@@ -1982,6 +2102,9 @@ void _Error_Handler(char *file, int line)
 
   stop_now = 0;
   go_back_to_sleep = 0;
+
+  error_code(0x11, 0x11);
+
   NVIC_SystemReset();
 }
 
@@ -1999,12 +2122,24 @@ void StartDefaultTask(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /* Infinite loop */
   indicate_waiting_to_connect();
-  for(;;)
-  {
-    osDelay(1);
-  }
+  osThreadExit();
   /* USER CODE END 5 */
 }
 
@@ -2025,7 +2160,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+  if (htim->Instance == TIM8) {
+      HTIM8_PeriodElapsedCallback();
+  }
   /* USER CODE END Callback 1 */
 }
 
@@ -2056,6 +2193,7 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

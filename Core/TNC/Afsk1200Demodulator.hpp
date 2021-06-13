@@ -62,7 +62,6 @@ struct Afsk1200Demodulator : IDemodulator
 
     void start() override
     {
-        INFO("Setting 48MHz SysClock.");
         SysClock48();
 
         // rx_twist is 6dB for discriminator input and 0db for de-emphasized input.
@@ -90,13 +89,13 @@ struct Afsk1200Demodulator : IDemodulator
         sConfig.Channel = AUDIO_IN;
         sConfig.Rank = ADC_REGULAR_RANK_1;
         sConfig.SingleDiff = ADC_SINGLE_ENDED;
-        sConfig.SamplingTime = ADC_SAMPLETIME_12CYCLES_5;
+        sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
         sConfig.OffsetNumber = ADC_OFFSET_NONE;
         sConfig.Offset = 0;
         if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
             CxxErrorHandler();
 #ifndef NUCLEOTNC
-        startADC(1817, ADC_BLOCK_SIZE);
+        startADC(4544, ADC_BLOCK_SIZE);
 #else
         startADC(3029, ADC_BLOCK_SIZE);
 #endif

@@ -60,6 +60,8 @@ void startAudioInputTask(void const * argument);
 
 void TNC_Error_Handler(int dev, int err);
 
+void sendAudioMessage(int msg, uint32_t timeout = 0);
+
 #ifdef __cplusplus
 }
 
@@ -76,7 +78,7 @@ enum AdcState {
     POLL_BATTERY_LEVEL,             // Battery level
     STREAM_OUTPUT_LEVEL,            // Amplified & filtered output levels
     AUTO_ADJUST_INPUT_LEVEL,        // Automatically adjust input levels
-    CONFIGURE_INPUT_LEVELS,         // Set configured input levels
+    CONFIGURE_INPUT_LEVELS,         // Set configured input levels (can cause long delay)
     UPDATE_SETTINGS,                // Update the device settings
     IDLE,                           // No DMA; sleep for 10ms
     POLL_TWIST_LEVEL,

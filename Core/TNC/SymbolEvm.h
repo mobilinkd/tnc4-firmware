@@ -38,12 +38,12 @@ struct SymbolEvm
         symbol_t symbol;
         FloatType evm;
 
-        sample = std::min(3.0f, std::max(-3.0f, sample));
+        // sample = std::min(3.0f, std::max(-3.0f, sample));
 
         if (sample > 2)
         {
             symbol = 3;
-            evm = (sample - 3) * 0.333333f;
+            evm = (sample - 3);
         }
         else if (sample > 0)
         {
@@ -58,10 +58,10 @@ struct SymbolEvm
         else
         {
             symbol = -3;
-            evm = (sample + 3) * 0.333333f;
+            evm = (sample + 3);
         }
         
-        evm_ = filter_(evm);
+        evm_ = std::sqrt(filter_(evm*evm));
         
         return std::make_tuple(symbol, evm);
     }

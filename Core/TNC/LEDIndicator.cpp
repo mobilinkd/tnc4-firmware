@@ -554,17 +554,17 @@ void indicate_on()
 
 void indicate_waiting_to_connect(void)
 {
-//    mobilinkd::tnc::flash().disconnect();
+    mobilinkd::tnc::flash().disconnect();
 }
 
 void indicate_connected_via_usb(void)
 {
-//    mobilinkd::tnc::flash().usb();
+    mobilinkd::tnc::flash().usb();
 }
 
 void indicate_connected_via_ble(void)
 {
-//    mobilinkd::tnc::flash().bt();
+    mobilinkd::tnc::flash().bt();
 }
 
 void tx_on(void)

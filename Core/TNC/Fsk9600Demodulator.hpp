@@ -78,7 +78,7 @@ struct Fsk9600Demodulator : IDemodulator
         if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
             CxxErrorHandler();
 
-        startADC(416, ADC_BLOCK_SIZE);
+        startADC(1249, ADC_BLOCK_SIZE);
     }
 
     void stop() override

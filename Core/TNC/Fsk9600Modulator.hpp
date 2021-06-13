@@ -83,14 +83,14 @@ struct Fsk9600Modulator : Modulator
 
     void send(uint8_t bit) override
     {
-        auto scrambled = lfsr(bit);
+        uint8_t scrambled = lfsr(bit);
 
         switch (state)
         {
         case State::STOPPING:
         case State::STOPPED:
             ptt_->on();
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
                 HAL_RCCEx_DisableLSCO();
 #endif
 
@@ -103,7 +103,7 @@ struct Fsk9600Modulator : Modulator
             start_conversion();
             break;
         case State::RUNNING:
-            osMessageQueuePut(dacOutputQueueHandle_, (void*) scrambled, 0, osWaitForever);
+            osMessageQueuePut(dacOutputQueueHandle_, &scrambled, 0, osWaitForever);
             break;
         }
     }
@@ -146,7 +146,7 @@ struct Fsk9600Modulator : Modulator
             stop_conversion();
             ptt_->off();
             level = Level::HIGH;
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
                 HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
             break;
@@ -161,7 +161,7 @@ struct Fsk9600Modulator : Modulator
         stop_conversion();
         ptt_->off();
         level = Level::HIGH;
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
             HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
         // Drain the queue.

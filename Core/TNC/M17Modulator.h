@@ -39,8 +39,9 @@ struct M17Modulator : Modulator
     osMessageQId dacOutputQueueHandle_{0};
     PTT* ptt_{nullptr};
     uint16_t volume_{4096};
-    volatile uint16_t delay_count = 0;      // TX Delay
-    volatile uint16_t stop_count = 0;       // Flush the RRC matched filter.
+    uint16_t tx_delay = 0;		   // TX delay
+    uint16_t delay_count = 0;      // Current TX delay count
+    uint16_t stop_count = 0;       // Flush the RRC matched filter.
     State state{State::STOPPED};
     float tmp[TRANSFER_LEN];
 
@@ -96,33 +97,33 @@ struct M17Modulator : Modulator
 
     void send(uint8_t bits) override
     {
-        uint16_t txdelay = 0;
-
         switch (state)
         {
         case State::STOPPING:
         case State::STOPPED:
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
             HAL_RCCEx_DisableLSCO();
 #endif
             delay_count = 0;
-            txdelay = kiss::settings().txdelay * 12 - 5;
-            fill_empty(buffer_.data());
-            fill_empty(buffer_.data() + TRANSFER_LEN);
+            tx_delay = kiss::settings().txdelay * 12 - 5;
+            start_empty(buffer_.data());
+            start_empty(buffer_.data() + TRANSFER_LEN);
             state = State::STARTING;
             [[fallthrough]];
         case State::STARTING:
-            osMessageQueuePut(audioInputQueueHandle, (void*) tnc::audio::IDLE, 0,
-              osWaitForever);
+            sendAudioMessage(tnc::audio::IDLE, osWaitForever);
             start_conversion();
             ptt_->on();
-            while (delay_count < txdelay) osThreadYield();
+            while (delay_count < tx_delay)
+            {
+            	osThreadYield();
+            }
             stop_count = 4; // 16 symbols to flush the RRC filter.
-            osMessageQueuePut(dacOutputQueueHandle_, (void*) bits, 0, osWaitForever);
+            osMessageQueuePut(dacOutputQueueHandle_, &bits, 0, osWaitForever);
             state = State::RUNNING;
             break;
         case State::RUNNING:
-            osMessageQueuePut(dacOutputQueueHandle_, (void*) bits, 9, osWaitForever);
+            osMessageQueuePut(dacOutputQueueHandle_, &bits, 9, osWaitForever);
             break;
         }
     }
@@ -154,7 +155,7 @@ struct M17Modulator : Modulator
         switch (state)
         {
         case State::STARTING:
-            fill_empty(buffer_.data());
+            start_empty(buffer_.data());
             delay_count += 1;
             break;
         case State::RUNNING:
@@ -168,12 +169,10 @@ struct M17Modulator : Modulator
         case State::STOPPED:
             stop_conversion();
             ptt_->off();
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
                 HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
-            osMessageQueuePut(audioInputQueueHandle, (void*) tnc::audio::DEMODULATOR, 0,
-              osWaitForever);
-
+            sendAudioMessage(tnc::audio::DEMODULATOR, 0);
             break;
         }
     }
@@ -192,7 +191,7 @@ struct M17Modulator : Modulator
         switch (state)
         {
         case State::STARTING:
-            fill_empty(buffer_.data() + TRANSFER_LEN);
+        	start_empty(buffer_.data() + TRANSFER_LEN);
             delay_count += 1;
             break;
         case State::RUNNING:
@@ -206,11 +205,10 @@ struct M17Modulator : Modulator
         case State::STOPPED:
             stop_conversion();
             ptt_->off();
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
                 HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
-            osMessageQueuePut(audioInputQueueHandle, (void*) tnc::audio::DEMODULATOR, 0,
-              osWaitForever);
+            sendAudioMessage(tnc::audio::DEMODULATOR, 0);
             break;
         }
     }
@@ -220,7 +218,7 @@ struct M17Modulator : Modulator
         state = State::STOPPED;
         stop_conversion();
         ptt_->off();
-#if defined(KISS_LOGGING) && !defined(NUCLEOTNC)
+#if defined(KISS_LOGGING) && defined(HAVE_LSCO)
             HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
         // Drain the queue.
@@ -303,7 +301,7 @@ private:
 
         for (size_t i = 0; i != 4; ++i)
         {
-            symbols[i] = bits_to_symbol(bits >> 6) * polarity;
+            symbols[i] = bits_to_symbol((bits >> 6) & 3) * polarity;
             bits <<= 2;
         }
 
@@ -317,9 +315,17 @@ private:
     }
 
     [[gnu::noinline]]
-    void fill_empty(int16_t* buffer)
+    void start_empty(int16_t* buffer)
     {
-        symbols.fill(0);
+        int16_t polarity = kiss::settings().tx_rev_polarity() ? -1 : 1;
+
+        uint8_t bits = 0x77;
+
+        for (size_t i = 0; i != 4; ++i)
+        {
+            symbols[i] = bits_to_symbol((bits >> 6) & 3) * polarity;
+            bits <<= 2;
+        }
 
         arm_fir_interpolate_f32(
             &fir_interpolator, symbols.data(), tmp, BLOCKSIZE);
@@ -327,6 +333,16 @@ private:
         for (size_t i = 0; i != TRANSFER_LEN; ++i)
         {
             buffer[i] = adjust_level(tmp[i]);
+        }
+    }
+
+
+    [[gnu::noinline]]
+    void fill_empty(int16_t* buffer)
+    {
+        for (size_t i = 0; i != TRANSFER_LEN; ++i)
+        {
+            buffer[i] = 2048;
         }
     }
 };

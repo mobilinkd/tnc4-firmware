@@ -21,7 +21,7 @@ mobilinkd::Encoder* encoder;
 extern "C" void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef*) {
 	uint32_t value;
     auto status = osMessageQueueGet(dacOutputQueueHandle, &value, 0, 0);
-    if (status == osEventMessage) {
+    if (status == osOK) {
         modulator->fill_first(value);
     } else {
         modulator->empty_first();
@@ -31,7 +31,7 @@ extern "C" void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef*) {
 extern "C" void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef*) {
 	uint32_t value;
     auto status = osMessageQueueGet(dacOutputQueueHandle, &value, 0, 0);
-    if (status == osEventMessage) {
+    if (status == osOK) {
         modulator->fill_last(value);
     } else {
         modulator->empty_last();
@@ -40,6 +40,16 @@ extern "C" void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef*) {
 
 extern "C" void HAL_DAC_DMAUnderrunCallbackCh1(DAC_HandleTypeDef*) {
     modulator->abort();
+}
+
+extern "C" osStatus_t sendTransmitMessage(void* frame, uint32_t timeout)
+{
+	return osMessageQueuePut(hdlcOutputQueueHandle, &frame, 0, timeout);
+}
+
+extern "C" osStatus_t sendDacMessage(void* frame, uint32_t timeout)
+{
+	return osMessageQueuePut(dacOutputQueueHandle, &frame, 0, timeout);
 }
 
 mobilinkd::tnc::Modulator& getModulator()
@@ -123,6 +133,8 @@ void startModulatorTask(void const*)
 
     // Wait until hardware is initialized before creating modulator.
     osMutexWait(hardwareInitMutexHandle, osWaitForever);
+
+    INFO("Start modulator task");
 
     while (true)
     {

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "Correlator.h"
+
 #include <array>
 #include <cstdint>
 #include <cstddef>
@@ -36,5 +38,12 @@ inline constexpr uint16_t sync_word(std::array<uint8_t, 2> sw)
 {
     return sw[0] * 256 + sw[1];
 }
+
+using sync_word_t = SyncWord<Correlator>;
+
+extern sync_word_t preamble_sync;
+extern sync_word_t lsf_sync;
+extern sync_word_t packet_sync;
+extern Correlator correlator;
 
 }} // mobilinkd::m17

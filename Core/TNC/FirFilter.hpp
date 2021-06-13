@@ -27,7 +27,7 @@ struct FirCoefficients {
     {}
 };
 
-constexpr size_t MAX_BLOCK_SIZE = 88;
+constexpr size_t MAX_BLOCK_SIZE = 192;
 
 namespace fir_detail {
 extern float filter_input[MAX_BLOCK_SIZE];
@@ -75,10 +75,10 @@ struct FirFilter {
     }
 
     // ADC input
-    float* operator()(const int16_t* input) // __attribute__((section(".bss2")))
+    float* operator()(const int16_t* input, float scale = 1.f) // __attribute__((section(".bss2")))
     {
         for (size_t i = 0; i != BLOCK_SIZE; i++) {
-            fir_detail::filter_input[i] = float(input[i]);
+            fir_detail::filter_input[i] = float(input[i]) * scale;
         }
         arm_fir_f32(&instance, fir_detail::filter_input, filter_output, BLOCK_SIZE);
         return filter_output;

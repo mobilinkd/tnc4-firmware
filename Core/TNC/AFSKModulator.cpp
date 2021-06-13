@@ -13,7 +13,7 @@ void AFSKModulator::init(const kiss::Hardware& hw)
 
 #ifndef NUCLEOTNC
     // Configure 48MHz clock for 26.4ksps.
-    htim7.Init.Period = 1817;
+    htim7.Init.Period = 4544;
 #else
     // Using an 80MHz clock on NucleoTNC.
     htim7.Init.Period = 3029;

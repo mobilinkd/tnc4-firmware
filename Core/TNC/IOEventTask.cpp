@@ -83,11 +83,17 @@ void startIOEventTask(void*)
         HAL_NVIC_SetPriority(SW_BOOT_EXTI_IRQn, 6, 0);
         HAL_NVIC_EnableIRQ(SW_BOOT_EXTI_IRQn);
 
-        HAL_NVIC_SetPriority(EXTI4_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+        HAL_NVIC_SetPriority(BT_STATE1_EXTI_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(BT_STATE1_EXTI_IRQn);
 
-        HAL_NVIC_SetPriority(EXTI9_5_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+        HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
+
+        HAL_NVIC_SetPriority(USB_POWER_EXTI_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(USB_POWER_EXTI_IRQn);
+
+        HAL_NVIC_SetPriority(OVP_ERROR_EXTI_IRQn, 6, 0);
+        HAL_NVIC_EnableIRQ(OVP_ERROR_EXTI_IRQn);
 
         // FIXME: this is probably not right
         if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
@@ -142,14 +148,13 @@ void startIOEventTask(void*)
                 {
                     cdc_connected = true;
                     // Disable Bluetooth Module
-                    HAL_NVIC_DisableIRQ(EXTI4_IRQn);
-                    HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+                    HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
+                    HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
                     HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin,
                         GPIO_PIN_RESET);
                     INFO("CDC Opened");
                     indicate_connected_via_usb();
-                    osMessageQueuePut(audioInputQueueHandle,
-                        (void*) audio::DEMODULATOR, 0, osWaitForever);
+                    sendAudioMessage(audio::DEMODULATOR, osWaitForever);
                 }
                 break;
             case CMD_USB_DISCONNECTED:
@@ -170,8 +175,7 @@ void startIOEventTask(void*)
             case CMD_USB_CDC_DISCONNECT:
                 if (cdc_connected) {
                     cdc_connected = false;
-                    osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-                        osWaitForever);
+                    sendAudioMessage(audio::IDLE, osWaitForever);
                     kiss::getAFSKTestTone().stop();
                     closeCDC();
                     INFO("CDC Closed");
@@ -181,8 +185,8 @@ void startIOEventTask(void*)
                         GPIO_PIN_SET);
                     bm78_wait_until_ready();
 
-                    HAL_NVIC_EnableIRQ(EXTI4_IRQn);
-                    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+                    HAL_NVIC_EnableIRQ(BT_STATE1_EXTI_IRQn);
+                    HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
                     indicate_waiting_to_connect();
                 }
@@ -191,8 +195,7 @@ void startIOEventTask(void*)
                 INFO("Power Down");
                 power_button_counter = osKernelSysTick();
                 HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-                osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-                    osWaitForever);
+                sendAudioMessage(audio::IDLE, osWaitForever);
                 break;
             case CMD_POWER_BUTTON_UP:
                 TNC_DEBUG("Power Up");
@@ -214,26 +217,21 @@ void startIOEventTask(void*)
                 break;
             case CMD_BOOT_BUTTON_UP:
                 TNC_DEBUG("BOOT Up");
-                osMessageQueuePut(audioInputQueueHandle,
-                    (void*) audio::AUTO_ADJUST_INPUT_LEVEL, 0,
-                    osWaitForever);
+                sendAudioMessage(audio::AUTO_ADJUST_INPUT_LEVEL, osWaitForever);
                 if (ioport != getNullPort())
                 {
-                    osMessageQueuePut(audioInputQueueHandle,
-                        (void*) audio::DEMODULATOR, 0, osWaitForever);
+                	sendAudioMessage(audio::DEMODULATOR, osWaitForever);
                 }
                 else
                 {
-                    osMessageQueuePut(audioInputQueueHandle,
-                    		(void*) audio::IDLE, 0, osWaitForever);
+                	sendAudioMessage(audio::IDLE, osWaitForever);
                 }
                 break;
             case CMD_BT_CONNECT:
                 TNC_DEBUG("BT Connect");
                 if (openSerial())
                 {
-                    osMessageQueuePut(audioInputQueueHandle,
-                    		(void*) audio::DEMODULATOR, 0, osWaitForever);
+                	sendAudioMessage(audio::DEMODULATOR, osWaitForever);
                     INFO("BT Opened");
                     indicate_connected_via_ble();
                     HAL_PCD_EP_SetStall(&hpcd_USB_OTG_FS, CDC_CMD_EP);
@@ -244,8 +242,7 @@ void startIOEventTask(void*)
                 closeSerial();
                 indicate_waiting_to_connect();
                 HAL_PCD_EP_ClrStall(&hpcd_USB_OTG_FS, CDC_CMD_EP);
-                osMessageQueuePut(audioInputQueueHandle, (void*) audio::IDLE, 0,
-                    osWaitForever);
+                sendAudioMessage(audio::IDLE, osWaitForever);
                 kiss::getAFSKTestTone().stop();
                 INFO("BT Closed");
                 break;
@@ -264,11 +261,11 @@ void startIOEventTask(void*)
                 audio::setAudioInputLevels();
                 bm78_wait_until_ready();
 
-                HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
-                HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+                HAL_NVIC_SetPriority(BT_STATE1_EXTI_IRQn, 5, 0);
+                HAL_NVIC_EnableIRQ(BT_STATE1_EXTI_IRQn);
 
-                HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
-                HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+                HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 5, 0);
+                HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
                 HAL_NVIC_SetPriority(SW_BOOT_EXTI_IRQn, 6, 0);
                 HAL_NVIC_EnableIRQ(SW_BOOT_EXTI_IRQn);
@@ -332,12 +329,13 @@ void startIOEventTask(void*)
                 INFO("USB resume");
                 break;
             default:
-                WARN("unknown command = %04x", static_cast<unsigned int>(cmd));
+                WARN("unknown command = %04x", cmd);
                 break;
             }
             continue;
         }
 
+        // INFO("frame = %p", frame);
 
         if (frame->source() & IoFrame::RF_DATA)
         {
@@ -346,8 +344,6 @@ void startIOEventTask(void*)
             if (!ioport->write(frame, frame->size() + 100))
             {
                 ERROR("Timed out sending frame");
-                // The frame has been passed to the write() call.  It owns it now.
-                // hdlc::release(frame);
             }
         }
         else
@@ -357,7 +353,7 @@ void startIOEventTask(void*)
             {
             	kiss::getAFSKTestTone().stop();
                 if (osMessageQueuePut(hdlcOutputQueueHandle,
-                    frame, 0,
+                    &frame, 0,
                     osWaitForever) != osOK)
                 {
                     ERROR("Failed to write frame to TX queue");

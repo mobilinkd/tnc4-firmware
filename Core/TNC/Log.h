@@ -46,8 +46,6 @@ void log_(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)))
 
 namespace mobilinkd { namespace tnc {
 
-#define APP_TX_DATA_SIZE 64
-
 struct Log {
     enum Level {debug = 0, info, warn, error, severe};
 

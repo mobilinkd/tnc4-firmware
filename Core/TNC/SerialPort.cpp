@@ -27,7 +27,8 @@ extern UART_HandleTypeDef huart3;
 UART_HandleTypeDef& huart_serial = huart3;
 #endif
 
-extern osMessageQId ioEventQueueHandle;
+extern osMessageQueueId_t ioEventQueueHandle;
+extern osMessageQueueId_t serialInputQueueHandle;
 
 std::atomic<uint32_t> uart_error{HAL_UART_ERROR_NONE};
 
@@ -36,31 +37,14 @@ std::atomic<bool> txDoneFlag{true};
 uint8_t tmpBuffer[mobilinkd::tnc::TX_BUFFER_SIZE];
 uint8_t tmpBuffer2[mobilinkd::tnc::TX_BUFFER_SIZE];
 
-constexpr const int RX_BUFFER_SIZE = 127;
+constexpr const int RX_BUFFER_SIZE = 16;
 unsigned char rxBuffer[RX_BUFFER_SIZE * 2];
 
 // 3 chunks of 128 bytes.  The first byte in each chunk is the length.
 typedef mobilinkd::tnc::memory::Pool<
-    3, RX_BUFFER_SIZE + 1> serial_pool_type;
+    16, RX_BUFFER_SIZE + 1> serial_pool_type;
 serial_pool_type serialPool;
 
-#ifndef NUCLEOTNC
-void log_frame(mobilinkd::tnc::hdlc::IoFrame* frame)
-{
-    int pos = 0;
-    for (auto c: *frame) {
-        if (isprint(int(c))) pos += sprintf((char*)tmpBuffer2 + pos, " %c ", c);
-        else pos += sprintf((char*)tmpBuffer2 + pos, "/%02x", c);
-        if (pos > 80) {
-          TNC_DEBUG((char*)tmpBuffer2);
-          pos = 0;
-        }
-    }
-    TNC_DEBUG((char*)tmpBuffer2);
-}
-#endif
-
-// HAL does not have
 HAL_StatusTypeDef UART_DMAPauseReceive(UART_HandleTypeDef *huart)
 {
   /* Process Locked */
@@ -131,9 +115,9 @@ void startSerialTask(void const* arg)
 
     while (true) {
     	serial_pool_type::chunk_type* block;
-        auto status = osMessageQueueGet(serialPort->queue(), &block, 0, osWaitForever);
+        auto status = osMessageQueueGet(serialInputQueueHandle, &block, 0, osWaitForever);
 
-        if (status != osEventMessage) {
+        if (status != osOK) {
             continue;
         }
 
@@ -151,6 +135,8 @@ void startSerialTask(void const* arg)
         }
 
         auto data = static_cast<unsigned char*>(block->buffer);
+
+        ITM_SendChar('.');
 
         uint8_t end = data[0] + 1;
         for (uint8_t i = 1; i != end; ++i) {
@@ -173,10 +159,11 @@ void startSerialTask(void const* arg)
                     frame->source(frame->source() & 7);
                     if (osMessageQueuePut(
                         ioEventQueueHandle,
-                        frame, 0,
+                        &frame, 0,
                         osWaitForever) != osOK)
                     {
                         hdlc::release(frame);
+                        WARN("timed out")
                     }
 
                     if (hdlc::ioFramePool().size() < (hdlc::ioFramePool().capacity() / 4))
@@ -195,9 +182,9 @@ void startSerialTask(void const* arg)
                     break;
                 default:
                     if (not frame->push_back(c)) {
-                        hdlc::release(frame);
+                    	frame->clear();
+                        WARN("frame dropped");
                         state = WAIT_FBEGIN;  // Drop frame;
-                        frame = hdlc::acquire_wait();
                     }
                 }
                 break;
@@ -207,17 +194,20 @@ void startSerialTask(void const* arg)
                 case TFESC:
                     if (not frame->push_back(FESC)) {
                         frame->clear();
+                        WARN("frame dropped");
                         state = WAIT_FBEGIN;  // Drop frame;
                     }
                     break;
                 case TFEND:
                     if (not frame->push_back(FEND)) {
                         frame->clear();
+                        WARN("frame dropped");
                         state = WAIT_FBEGIN;  // Drop frame;
                     }
                     break;
                 default:
                     frame->clear();
+                    WARN("invalid escape");
                     state = WAIT_FBEGIN;  // Drop frame;
                 }
                 break;
@@ -245,7 +235,7 @@ extern "C" void HAL_UART_RxHalfCpltCallback(UART_HandleTypeDef *huart)
     if (!block) return;
     memmove(block->buffer + 1, rxBuffer, len);
     block->buffer[0] = len;
-    auto status = osMessageQueuePut(mobilinkd::tnc::getSerialPort()->queue(), block, 0, 0);
+    auto status = osMessageQueuePut(serialInputQueueHandle, &block, 0, 0);
     if (status != osOK) serialPool.deallocate(block);
 }
 
@@ -264,7 +254,7 @@ extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     if (!block) return;
     memmove(block->buffer + 1, rxBuffer + RX_BUFFER_SIZE, len);
     block->buffer[0] = len;
-    auto status = osMessageQueuePut(mobilinkd::tnc::getSerialPort()->queue(), block, 0, 0);
+    auto status = osMessageQueuePut(serialInputQueueHandle, &block, 0, 0);
     if (status != osOK) serialPool.deallocate(block);
 }
 
@@ -292,14 +282,14 @@ extern "C" void idleInterruptCallback(UART_HandleTypeDef* huart)
 
     HAL_UART_Receive_DMA(huart, rxBuffer, RX_BUFFER_SIZE * 2);
 
-    auto status = osMessageQueuePut(mobilinkd::tnc::getSerialPort()->queue(), (void*) block, 0, 0);
+    auto status = osMessageQueuePut(serialInputQueueHandle, &block, 0, 0);
     if (status != osOK) serialPool.deallocate(block);
 
 }
 
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart)
 {
-    osMessageQueuePut(mobilinkd::tnc::getSerialPort()->queue(), (void*) huart->ErrorCode, 0, 0);
+    osMessageQueuePut(serialInputQueueHandle, &huart->ErrorCode, 0, 0);
     uart_error.store((huart->gState<<16) | huart->ErrorCode);
     huart->ErrorCode = HAL_UART_ERROR_NONE;
     huart->gState = HAL_UART_STATE_READY;
@@ -322,18 +312,7 @@ static const osThreadAttr_t serialTask_attributes = {
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
 
-uint8_t uartQueueBuffer[ 32 * sizeof( uint32_t ) ];
-osStaticMessageQDef_t uartQueueControlBlock;
-const osMessageQueueAttr_t uartQueue_attributes = {
-  .name = "uartQueue",
-  .cb_mem = &uartQueueControlBlock,
-  .cb_size = sizeof(uartQueueControlBlock),
-  .mq_mem = &uartQueueBuffer,
-  .mq_size = sizeof(uartQueueBuffer)
-};
-
-
-const osMutexAttr_t uartMutex_attribures = {
+static const osMutexAttr_t uartMutex_attribures = {
   .name = "uartMutex",
   .cb_mem = nullptr,
   .cb_size = 0UL,
@@ -343,12 +322,12 @@ void SerialPort::init()
 {
     if (serialTaskHandle_) return;
 
-    queue_ = osMessageQueueNew(32, sizeof(uint32_t), &uartQueue_attributes);
+    queue_ = serialInputQueueHandle;
 
     mutex_ = osMutexNew(&uartMutex_attribures);
-    serialTaskHandle_ = osThreadNew(startSerialTask, NULL, &serialTask_attributes);
+    serialTaskHandle_ = osThreadNew(startSerialTask, this, &serialTask_attributes);
 #ifndef NUCLEOTNC
-    TNC_DEBUG("serialTaskHandle_ = %p", serialTaskHandle_);
+    INFO("serialTaskHandle_ = %p", serialTaskHandle_);
 #endif
 }
 

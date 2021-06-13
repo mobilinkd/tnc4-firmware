@@ -28,7 +28,7 @@ void setAudioOutputLevel();
 
 extern bool streamInputDCOffset;
 constexpr const uint16_t vref = 4095; // Must match ADC output (adjust when oversampling)
-extern uint16_t virtual_ground;
+extern int16_t virtual_ground;
 extern float i_vgnd;
 
 }}} // mobilinkd::tnc::audio

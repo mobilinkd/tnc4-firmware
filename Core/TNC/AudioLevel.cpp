@@ -27,7 +27,7 @@ extern DAC_HandleTypeDef hdac1;
 
 namespace mobilinkd { namespace tnc { namespace audio {
 
-uint16_t virtual_ground{0};
+int16_t virtual_ground{0};
 float i_vgnd{0.0f};
 
 void set_input_gain(int level)
@@ -117,7 +117,7 @@ int adjust_input_gain() {
     else gain = 0;
 
     set_input_gain(gain);
-    osDelay(100);   // Need time for DC offset to settle.
+    osDelay(100);   // Need time for DC offset to settle. (THIS NEEDS TO BE MUCH LONGER.)
 
     std::tie(vpp, vavg, vmin, vmax) = readLevels(AUDIO_IN);
     INFO("\nVpp = %" PRIu16 ", Vavg = %" PRIu16 "\n", vpp, vavg);
@@ -155,6 +155,10 @@ void setAudioInputLevels()
     // setAudioPins();
     INFO("Setting input gain: %d", kiss::settings().input_gain);
     set_input_gain(kiss::settings().input_gain);
+
+    indicate_turning_on();
+    osDelay(5000); // Delay for 5 seconds for DC level to settle.
+    indicate_on();
 
     uint16_t vpp, vavg, vmin, vmax;
 

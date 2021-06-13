@@ -23,7 +23,7 @@ void handle_frame(uint8_t frame_type, hdlc::IoFrame* frame) {
     	// This should never happen.
         ERROR("FRAME_DATA in handle_frame");
         CxxErrorHandler();
-        // osMessageQueuePut(hdlcOutputQueueHandle, frame, 0, 0);
+        // osMessageQueuePut(hdlcOutputQueueHandle, &frame, 0, 0);
         break;
     case kiss::FRAME_TX_DELAY:
         TNC_DEBUG("FRAME_TX_DELAY");

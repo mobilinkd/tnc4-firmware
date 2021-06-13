@@ -96,5 +96,37 @@ const std::array<int16_t, 8> LSF_SYNC_CONV = { 2047,2047,2047,2047,-2048,-2048,2
 const std::array<int16_t, 8> STREAM_SYNC_CONV = { -2048,-2048,-2048,-2048,2047,2047,-2048,2047 };
 const std::array<int16_t, 8> PACKET_SYNC_CONV = { 2047,-2048,2047,2047,-2048,-2048,-2048,-2048 };
 
+inline constexpr sync_word_t::buffer_t make_sync_array(std::array<uint8_t, 2> sync_word)
+{
+	sync_word_t::buffer_t result;
+	size_t index = 0;
+	for (auto a : sync_word)
+	{
+		for (size_t i = 0; i != 4; ++i)
+		{
+			switch ((a << (i * 2)) & 0xc0)
+			{
+			case 0:
+				result[index++] = +1;
+				break;
+			case 0x40:
+				result[index++] = +3;
+				break;
+			case 0x80:
+				result[index++] = -1;
+				break;
+			case 0xc0:
+				result[index++] = -3;
+				break;
+			}
+		}
+	}
+	return result;
+}
+
+sync_word_t preamble_sync({+3,-3,+3,-3,+3,-3,+3,-3}, 29.f);
+sync_word_t lsf_sync({+3,+3,+3,+3,-3,-3,+3,-3}, 31.f, -31.f);
+sync_word_t packet_sync({3,-3,3,3,-3,-3,-3,-3}, 31.f);
+Correlator correlator;
 
 }} // mobilinkd::m17

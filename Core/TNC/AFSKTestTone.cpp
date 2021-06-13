@@ -5,6 +5,7 @@
 #include "ModulatorTask.hpp"
 #include "Modulator.hpp"
 #include "KissHardware.hpp"
+#include "Log.h"
 
 #include "stm32l4xx_hal.h"
 #include "cmsis_os2.h"
@@ -12,11 +13,16 @@
 extern RNG_HandleTypeDef hrng;
 extern osThreadId testToneTaskHandle;
 
+mobilinkd::tnc::AFSKTestTone mobilinkd::tnc::testTone;
+void* testTonePtr = &mobilinkd::tnc::testTone;
+
 void startAfskToneTask(void* arg)
 {
     using mobilinkd::tnc::AFSKTestTone;
 
-    auto test = static_cast<const AFSKTestTone*>(arg);
+    INFO("startAfskToneTask")
+
+    auto test = static_cast<AFSKTestTone*>(arg);
 
     while (true) {
         switch (test->state()) {
@@ -40,6 +46,7 @@ void AFSKTestTone::transmit(State prev)
 {
     if (prev == State::NONE) {
       osThreadResume(testToneTaskHandle);
+      INFO("RNG: CR = %08x, DR = %08x, SR = %08x", hrng.Instance->CR, hrng.Instance->DR, hrng.Instance->SR);
     }
 }
 
@@ -73,11 +80,9 @@ void AFSKTestTone::stop()
     osThreadSuspend(testToneTaskHandle);
 }
 
-void AFSKTestTone::fill() const
+void AFSKTestTone::fill()
 {
-    static State current = State::SPACE;
-    static uint32_t random = 0;
-    static uint8_t counter = 0;
+	while (lfsr_ == 0) lfsr_ = HAL_GetTick() & 0x00ffffff;
 
     switch (state_) {
     case AFSKTestTone::State::NONE:
@@ -105,22 +110,27 @@ void AFSKTestTone::fill() const
     case AFSKTestTone::State::BOTH:
         if (kiss::settings().modem_type == kiss::Hardware::ModemType::M17)
         {
-            if ((counter & 3) == 0)
+        	/*
+            if ((counter_ & 3) == 0)
             {
-                auto status = HAL_RNG_GenerateRandomNumber(&hrng, &random);
+                auto status = HAL_RNG_GenerateRandomNumber(&hrng, &random_);
                 if (status != HAL_OK)
                 {
-                    WARN("RNG failure code %d", status);
+                    WARN("RNG failure code %d - %lu (%lu)", status, hrng.ErrorCode, counter_)
                 }
             }
-            getModulator().send(random & 0xFF);
-            random >>= 8;
-            counter += 1;
+            getModulator().send(random_ & 0xFF);
+            random_ >>= 8;
+            counter_ += 1;
+            */
+        	getModulator().send(lfsr_ & 0xFF);
+        	for (int i = 0; i != 8; ++i)
+        		lfsr_ = ((__builtin_popcount(lfsr_ & 0x87lu) & 1) << 23) | (lfsr_ >> 1);
         }
         else
         {
-            getModulator().send(current == State::SPACE);
-            current = (current == State::MARK ? State::SPACE : State::MARK);
+            getModulator().send(current_state_ == State::SPACE);
+            current_state_ = (current_state_ == State::MARK ? State::SPACE : State::MARK);
         }
         break;
     default:

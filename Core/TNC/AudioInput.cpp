@@ -37,7 +37,7 @@ extern "C" void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef*) {
     auto block = adcPool.allocate();
     if (!block) return;
     memmove(block->buffer, adc_buffer, dma_transfer_size);
-    auto status = osMessageQueuePut(adcInputQueueHandle, block, 0, 0);
+    auto status = osMessageQueuePut(adcInputQueueHandle, &block, 0, 0);
     if (status != osOK) adcPool.deallocate(block);
 }
 
@@ -48,7 +48,7 @@ extern "C" void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef*) {
     auto block = adcPool.allocate();
     if (!block) return;
     memmove(block->buffer, adc_buffer + half_buffer_size, dma_transfer_size);
-    auto status = osMessageQueuePut(adcInputQueueHandle, block, 0, 0);
+    auto status = osMessageQueuePut(adcInputQueueHandle, &block, 0, 0);
     if (status != osOK) adcPool.deallocate(block);
 }
 
@@ -57,6 +57,11 @@ extern "C" void HAL_ADC_ErrorCallback(ADC_HandleTypeDef* /* hadc */) {
 
     // __HAL_ADC_CLEAR_FLAG(hadc, (ADC_FLAG_EOC | ADC_FLAG_EOS | ADC_FLAG_OVR));
     // HAL_DMA_Start(hadc->DMA_Handle, (uint32_t)&hadc->Instance->DR, (uint32_t)adc_buffer, ADC_BUFFER_SIZE * 2);
+}
+
+extern "C" void sendAudioMessage(int msg, uint32_t timeout)
+{
+	osMessageQueuePut(audioInputQueueHandle, &msg, 0, timeout);
 }
 
 extern "C" void startAudioInputTask(void const*) {
@@ -135,7 +140,7 @@ uint32_t adc_buffer[ADC_BUFFER_SIZE];               // Two samples per element.
 volatile uint32_t adc_block_size = ADC_BUFFER_SIZE;          // Based on demodulator.
 volatile uint32_t dma_transfer_size = adc_block_size * 2;    // Transfer size in bytes.
 volatile uint32_t half_buffer_size = adc_block_size / 2;     // Transfer size in words / 2.
-adc_pool_type adcPool;
+adc_pool_type adcPool __attribute__((section(".bss2")));;
 
 void set_adc_block_size(uint32_t block_size)
 {
@@ -178,7 +183,11 @@ void demodulatorTask() {
     while (true) {
     	adc_pool_type::chunk_type* block;
 
-        if (osMessageQueueGetCount(audioInputQueueHandle)) break;
+        if (osMessageQueueGetCount(audioInputQueueHandle))
+        {
+        	INFO("Stopping demodulator");
+        	break;
+        }
 
         auto status = osMessageQueueGet(adcInputQueueHandle, &block, 0, osWaitForever);
         if (status != osOK) {
@@ -196,7 +205,7 @@ void demodulatorTask() {
         if (frame)
         {
             frame->source(frame->source() | hdlc::IoFrame::RF_DATA);
-            if (osMessageQueuePut(ioEventQueueHandle, frame, 0, 1) != osOK)
+            if (osMessageQueuePut(ioEventQueueHandle, &frame, 0, 1) != osOK)
             {
                 hdlc::release(frame);
             }

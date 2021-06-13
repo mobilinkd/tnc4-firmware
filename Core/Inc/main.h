@@ -38,6 +38,7 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+extern ADC_HandleTypeDef hadc2;
 
 /* USER CODE END ET */
 
@@ -57,6 +58,8 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void sendMessage(int cmd);
+void sendMessage2(int cmd, uint32_t timeout);
 
 /* USER CODE END EFP */
 
@@ -119,10 +122,10 @@ void Error_Handler(void);
 #define LED_TX_GPIO_Port GPIOC
 #define VDD_EN_Pin GPIO_PIN_9
 #define VDD_EN_GPIO_Port GPIOC
-#define BT_SLEEP_Pin GPIO_PIN_12
-#define BT_SLEEP_GPIO_Port GPIOC
-#define BT_WAKE_Pin GPIO_PIN_2
-#define BT_WAKE_GPIO_Port GPIOD
+#define BT_WAKE_Pin GPIO_PIN_12
+#define BT_WAKE_GPIO_Port GPIOC
+#define BT_SLEEP_Pin GPIO_PIN_2
+#define BT_SLEEP_GPIO_Port GPIOD
 #define BAT_CE_Pin GPIO_PIN_4
 #define BAT_CE_GPIO_Port GPIOB
 #define BT_CMD1_Pin GPIO_PIN_5
@@ -133,11 +136,16 @@ void Error_Handler(void);
 #define SW_BOOT_GPIO_Port GPIOH
 #define SW_BOOT_EXTI_IRQn EXTI3_IRQn
 /* USER CODE BEGIN Private defines */
+#define BT_STATE1_EXTI_IRQn EXTI0_IRQn
+#define BT_STATE2_EXTI_IRQn EXTI1_IRQn
 #define OVP_ERROR_EXTI_IRQn EXTI2_IRQn
+#define SW_BOOT_EXTI_IRQn EXTI3_IRQn
 #define USB_POWER_EXTI_IRQn EXTI15_10_IRQn
 #define SW_POWER_EXTI_IRQn EXTI9_5_IRQn
 
 // Compatibility defines
+#define BATTERY_ADC_HANDLE hadc2
+#define BATTERY_ADC_CHANNEL ADC_CHANNEL_16
 
 
 #define CMD_USB_CDC_CONNECT  1
@@ -172,6 +180,9 @@ void Error_Handler(void);
 #define CMD_USB_SUSPEND 25
 #define CMD_USB_RESUME 26
 
+#define CMD_OVP_ERROR 27
+#define CMD_NO_OVP_ERROR 28
+
 extern int reset_requested;
 extern char serial_number_64[13];
 extern uint8_t mac_address[6];
@@ -194,6 +205,7 @@ void SysClock48(void);
 void SysClock72(void);
 void SysClock80(void);
 void SysClock4(void);
+void error_code(int8_t a, int8_t b);
 
 #ifdef __cplusplus
 }
