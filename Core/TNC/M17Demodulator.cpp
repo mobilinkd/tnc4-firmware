@@ -342,7 +342,6 @@ hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
         }
     }
     str_indicator.off();
-//    INFO("dcd = %d", int(dcd.level() * 1000));
 
     return frame_result;
 }

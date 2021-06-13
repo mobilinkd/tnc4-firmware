@@ -8,18 +8,15 @@
 #include "AudioInput.hpp"
 #include "ClockRecovery.h"
 #include "DataCarrierDetect.h"
-#include "DeviationError.h"
 #include "FreqDevEstimator.h"
 #include "GPIO.hpp"
 #include "KissHardware.hpp"
 #include "Log.h"
 #include "M17.h"
-#include "M17Synchronizer.h"
 #include "M17Framer.h"
 #include "M17FrameDecoder.h"
 #include "ModulatorTask.hpp"
 #include "Modulator.hpp"
-#include "PhaseEstimator.h"
 #include "SymbolEvm.h"
 #include "Util.h"
 
@@ -105,7 +102,6 @@ struct M17Demodulator : IDemodulator
 
     demod_result_t demod(float sample);
 
-    // void update_values(uint8_t index, bool update_fd = false, bool quiet = false);
     void update_values(uint8_t index);
 
     hdlc::IoFrame* operator()(const q15_t* input) override;
