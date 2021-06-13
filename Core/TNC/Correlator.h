@@ -42,7 +42,7 @@ struct Correlator
     sample_filter_t sample_filter{b, a};
     std::array<int, SYMBOLS> tmp;
 
-    float operator()(float value);
+    void sample(float value);
 
     float correlate(sync_t sync);
 
@@ -63,7 +63,7 @@ struct Correlator
     std::tuple<float, float> outer_symbol_levels(uint8_t sample_index);
 
     template <typename F>
-    void apply(F& func, uint8_t index)
+    void apply(F func, uint8_t index)
     {
     	for (size_t i = index; i < buffer_.size(); i += SAMPLES_PER_SYMBOL)
     	{
@@ -106,26 +106,30 @@ struct SyncWord
 	int8_t updated_ = 0;
 	float magnitude_1_ = 1.f;
 	float magnitude_2_ = -1.f;
-	Indicator* indicator = nullptr;
 
-	SyncWord(buffer_t&& sync_word, float magnitude_1, float magnitude_2 = std::numeric_limits<float>::min())
+	SyncWord(buffer_t&& sync_word, float magnitude_1, float magnitude_2 = std::numeric_limits<float>::lowest())
 	: sync_word_(std::move(sync_word)), magnitude_1_(magnitude_1), magnitude_2_(magnitude_2)
 	{}
 
-	void set_indicator(Indicator* i) { indicator = i; }
-
-	uint8_t operator()(Correlator& correlator)
+	float triggered(Correlator& correlator)
 	{
 		float limit_1 = correlator.limit() * magnitude_1_;
 		float limit_2 = correlator.limit() * magnitude_2_;
 		auto value = correlator.correlate(sync_word_);
+
+		return (value > limit_1 || value < limit_2) ? value : 0.0;
+	}
+
+	uint8_t operator()(Correlator& correlator)
+	{
+		auto value = triggered(correlator);
+
 		value_type peak_value = 0;
 
-		if (value > limit_1 || value < limit_2)
+		if (value != 0)
 		{
 			if (!triggered_)
 			{
-				if (indicator) indicator->on();
 				samples_.fill(0);
 				triggered_ = true;
 			}
@@ -150,7 +154,6 @@ struct SyncWord
 					index += 1;
 				}
 				updated_ = peak_value > 0 ? 1 : -1;
-				if (indicator) indicator->off();
 			}
 		}
 		return timing_index_;

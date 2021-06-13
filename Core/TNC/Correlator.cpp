@@ -6,14 +6,12 @@
 
 namespace mobilinkd { namespace m17 {
 
-float Correlator::operator()(float value)
+void Correlator::sample(float value)
 {
 	limit_ = sample_filter(std::abs(value));
-	float result = buffer_[buffer_pos_];
 	buffer_[buffer_pos_] = value;
 	prev_buffer_pos_ = buffer_pos_;
 	if (++buffer_pos_ == buffer_.size()) buffer_pos_ = 0;
-	return value;
 }
 
 float Correlator::correlate(sync_t sync)
@@ -21,10 +19,10 @@ float Correlator::correlate(sync_t sync)
 	float result = 0.f;
 	size_t pos = prev_buffer_pos_ + SAMPLES_PER_SYMBOL;
 
-	for (auto s : sync)
+	for (size_t i = 0; i != sync.size(); ++i)
 	{
 		if (pos >= buffer_.size()) pos -= buffer_.size(); // wrapped
-		result += s * buffer_[pos];
+		result += sync[i] * buffer_[pos];
 		pos += SAMPLES_PER_SYMBOL;
 	}
 	return result;

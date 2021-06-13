@@ -125,7 +125,7 @@ inline constexpr sync_word_t::buffer_t make_sync_array(std::array<uint8_t, 2> sy
 }
 
 sync_word_t preamble_sync({+3,-3,+3,-3,+3,-3,+3,-3}, 29.f);
-sync_word_t lsf_sync({+3,+3,+3,+3,-3,-3,+3,-3}, 31.f, -31.f);
+sync_word_t lsf_sync({+3,+3,+3,+3,-3,-3,+3,-3}, 32.f, -31.f);
 sync_word_t packet_sync({3,-3,3,3,-3,-3,-3,-3}, 31.f);
 Correlator correlator;
 

@@ -33,8 +33,11 @@ class FreqDevEstimator
     using sample_filter_t = tnc::IirFilter<3>;
 
     // IIR with Nyquist of 1/32.
-    static constexpr std::array<float, 3> dc_b = { 0.00225158,  0.00450317,  0.00225158 };
-    static constexpr std::array<float, 3> dc_a = { 1.        , -1.86136115,  0.87036748 };
+//    static constexpr std::array<float, 3> dc_b = { 0.00225158,  0.00450317,  0.00225158 };
+//    static constexpr std::array<float, 3> dc_a = { 1.        , -1.86136115,  0.87036748 };
+    // IIR with Nyquist of 1/4.
+    static constexpr std::array<float, 3> dc_b = { 0.09763107,  0.19526215,  0.09763107 };
+    static constexpr std::array<float, 3> dc_a = { 1.        , -0.94280904,  0.33333333 };
 
     FloatType min_est_ = 0.0;
 	FloatType max_est_ = 0.0;
@@ -102,7 +105,7 @@ public:
 		FloatType max_ = max_est_ / max_count_;
 		FloatType min_ = min_est_ / min_count_;
 		deviation_ = (max_ - min_) / 6.0;
-		offset_ =  dc_filter_(std::max(std::min(max_ + min_, deviation_ * 0.1), deviation_ * -0.1));
+		offset_ =  dc_filter_(std::max(std::min(max_ + min_, deviation_ * 0.2), deviation_ * -0.2));
 		error_ = (std::sqrt(max_var_ / (max_count_ - 1)) + std::sqrt(min_var_ / (min_count_ - 1))) * 0.5;
 		if (deviation_ > 0) idev_ = 1.0 / deviation_;
 		min_cutoff_ = offset_ - deviation_ * 2;
