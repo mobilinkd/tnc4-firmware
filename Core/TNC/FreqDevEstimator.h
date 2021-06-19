@@ -5,13 +5,10 @@
 
 #include "IirFilter.hpp"
 
-#include "stm32l4xx_hal.h"
-
 #include <algorithm>
 #include <array>
-#include <cstdlib>
-#include <type_traits>
-#include <tuple>
+#include <cmath>
+#include <cstddef>
 
 namespace mobilinkd { namespace m17 {
 
@@ -32,12 +29,11 @@ class FreqDevEstimator
 {
     using sample_filter_t = tnc::IirFilter<3>;
 
-    // IIR with Nyquist of 1/32.
-//    static constexpr std::array<float, 3> dc_b = { 0.00225158,  0.00450317,  0.00225158 };
-//    static constexpr std::array<float, 3> dc_a = { 1.        , -1.86136115,  0.87036748 };
     // IIR with Nyquist of 1/4.
     static constexpr std::array<float, 3> dc_b = { 0.09763107,  0.19526215,  0.09763107 };
     static constexpr std::array<float, 3> dc_a = { 1.        , -0.94280904,  0.33333333 };
+
+    static constexpr FloatType MAX_DC_ERROR = 0.2;
 
     FloatType min_est_ = 0.0;
 	FloatType max_est_ = 0.0;
@@ -85,7 +81,7 @@ public:
 		}
 		else if (sample > 1.5 * max_est_)
 		{
-			max_count_ = 0;
+			max_count_ = 1;
 			max_est_ = sample;
 			max_var_ = 0.0;
 			max_cutoff_ = max_est_ * 0.666666;
@@ -99,15 +95,21 @@ public:
 		}
 	}
 
+	/**
+	 * Update the estimates for deviation, offset, and EVM (error).  Note
+	 * that the estimates for error are using a sloppy implementation for
+	 * calculating variance to reduce the memory requirements.  This is
+	 * because this is designed for embedded use.
+	 */
 	void update()
 	{
 		if (max_count_ < 2 || min_count_ < 2) return;
 		FloatType max_ = max_est_ / max_count_;
 		FloatType min_ = min_est_ / min_count_;
 		deviation_ = (max_ - min_) / 6.0;
-		offset_ =  dc_filter_(std::max(std::min(max_ + min_, deviation_ * 0.2), deviation_ * -0.2));
-		error_ = (std::sqrt(max_var_ / (max_count_ - 1)) + std::sqrt(min_var_ / (min_count_ - 1))) * 0.5;
 		if (deviation_ > 0) idev_ = 1.0 / deviation_;
+		offset_ =  dc_filter_(std::max(std::min(max_ + min_, deviation_ * MAX_DC_ERROR), deviation_ * -MAX_DC_ERROR));
+		error_ = (std::sqrt(max_var_ / (max_count_ - 1)) + std::sqrt(min_var_ / (min_count_ - 1))) * 0.5 * idev_;
 		min_cutoff_ = offset_ - deviation_ * 2;
 		max_cutoff_ = offset_ + deviation_ * 2;
 		max_est_ = max_;

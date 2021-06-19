@@ -9,7 +9,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdlib>
+#include <cstdint>
+#include <cstddef>
 #include <type_traits>
 #include <tuple>
 
@@ -33,10 +34,9 @@ struct Correlator
     uint8_t prev_buffer_pos_ = 0;
     int code = -1;
 
-    // IIR with Nyquist of 1/960.
-//    static constexpr std::array<float,3> b = {2.67111819e-06, 5.34223638e-06, 2.67111819e-06};
-//    static constexpr std::array<float,3> a = {1.0, -1.99537201,  0.99538269};
-    // IIR with Nyquist of 1/240.
+    // IIR with Nyquist of 1/240.  This is used to determine the baseline
+    // signal level, which is then used to scale the correlation value.
+    // This makes the detector self-calibrating.
     static constexpr std::array<float,3> b = {4.24433681e-05, 8.48867363e-05, 4.24433681e-05};
     static constexpr std::array<float,3> a = {1.0, -1.98148851,  0.98165828};
     sample_filter_t sample_filter{b, a};

@@ -1,8 +1,7 @@
-// Copyright 2020 Mobilinkd LLC.
+// Copyright 2021 Mobilinkd LLC.
 
 #pragma once
 
-#include "IirFilter.hpp"
 #include "SlidingDFT.h"
 
 #include <array>
@@ -26,26 +25,24 @@ namespace mobilinkd { namespace m17 {
  *
  * Note: the input to this DCD must be unfiltered (raw) baseband input.
  */
-template <typename FloatType, size_t SampleRate, size_t BlockSize, size_t Accuracy = 1000>
+template <typename FloatType, size_t SampleRate, size_t Accuracy = 1000>
 struct DataCarrierDetect
 {
     using ComplexType = std::complex<FloatType>;
     using NDFT = NSlidingDFT<FloatType, SampleRate, SampleRate / Accuracy, 2>;
 
     NDFT dft_;
-    FloatType trigger_;
+    FloatType ltrigger_;
+    FloatType htrigger_;
     FloatType level_1 = 0.0;
     FloatType level_2 = 0.0;
-    size_t count = 0;
     FloatType level_ = 0.0;
-    FloatType c1 = FloatType(BlockSize - 1) / FloatType(BlockSize);
-    FloatType c2 = 1.0 / BlockSize;
+    bool triggered_ = false;
 
     DataCarrierDetect(
         size_t freq1, size_t freq2,
-        FloatType trigger = 100.0
-        )
-    : dft_({freq1, freq2}), trigger_(trigger)
+        FloatType ltrigger = 2.0, FloatType htrigger = 5.0)
+    : dft_({freq1, freq2}), ltrigger_(ltrigger), htrigger_(htrigger)
     {
     }
 
@@ -58,18 +55,22 @@ struct DataCarrierDetect
         auto result = dft_(sample);
         level_1 += std::norm(result[0]);
         level_2 += std::norm(result[1]);
-
-        if (++count == BlockSize)
-        {
-        	level_ = level_ * 0.8 + 0.2 * (level_1 / level_2);
-        	level_1 = 0.0;
-        	level_2 = 0.0;
-        	count = 0;
-        }
     }
 
+    /**
+     * Update the data carrier detection level.
+     */
+    void update()
+    {
+    	level_ = level_ * 0.8 + 0.2 * (level_1 / level_2);
+    	level_1 = 0.0;
+    	level_2 = 0.0;
+        triggered_ = triggered_ ? level_ > ltrigger_ : level_ > htrigger_;
+    }
+
+
     FloatType level() const { return level_; }
-    bool dcd() const { return level_ > trigger_; }
+    bool dcd() const { return triggered_; }
 };
 
 }} // mobilinkd::m17

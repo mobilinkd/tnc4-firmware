@@ -364,6 +364,7 @@ struct M17FrameDecoder
         INFO("LICH crc = %04x", checksum);
         if (checksum == 0)
         {
+        	lich_segments = 0;
             state_ = State::STREAM;
             lsf = tnc::hdlc::acquire_wait();
             for (auto c : output.lich) lsf->push_back(c);
@@ -371,6 +372,7 @@ struct M17FrameDecoder
             lsf->push_back(0);
             lsf->source(0x20);
             ber = 0;
+            dump(output.lich);
             return DecodeResult::OK;
         }
 #ifdef KISS_LOGGING
@@ -387,6 +389,7 @@ struct M17FrameDecoder
     DecodeResult decode_stream(buffer_t& buffer, tnc::hdlc::IoFrame*& stream, int& ber)
     {
         std::array<uint8_t, 20> stream_segment;
+        DecodeResult result = DecodeResult::OK;
 
         unpack_lich(buffer);
 
@@ -408,11 +411,12 @@ struct M17FrameDecoder
         {
             INFO("EOS");
             state_ = State::LSF;
+            result = DecodeResult::EOS;
         }
         stream->push_back(0);
         stream->push_back(0);
         stream->source(0x20);
-        return state_ == State::LSF ? DecodeResult::EOS : DecodeResult::OK;
+        return result;
     }
 
     /**
@@ -601,7 +605,9 @@ struct M17FrameDecoder
             switch (state_)
             {
             case State::LSF:
-                return decode_lich(buffer, result, ber);
+                if (decode_lich(buffer, result, ber) == DecodeResult::OK)
+                	return DecodeResult::OK;
+                [[fallthrough]]
             case State::STREAM:
                 return decode_stream(buffer, result, ber);
             default:

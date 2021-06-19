@@ -13,8 +13,6 @@
 
 namespace mobilinkd { namespace tnc {
 
-constexpr uint8_t MAX_MISSING_SYNC = 5;
-
 m17::Indicator lsf_indicator{GPIOB, GPIO_PIN_0};
 m17::Indicator dcd_indicator{GPIOA, GPIO_PIN_7};
 m17::Indicator str_indicator{GPIOA, GPIO_PIN_6};
@@ -25,6 +23,7 @@ void M17Demodulator::start()
 
     demod_filter.init(m17::rrc_taps_f15.data());
     passall(kiss::settings().options & KISS_OPTION_PASSALL);
+    polarity = kiss::settings().rx_rev_polarity() ? -1 : 1;
     audio::virtual_ground = (VREF + 1) / 2;
 
 //    hadc1.Init.OversamplingMode = DISABLE;
@@ -51,14 +50,16 @@ void M17Demodulator::start()
 
 void M17Demodulator::update_values(uint8_t index)
 {
-	m17::correlator.apply([this,index](float t){dev.sample(t);}, index);
+	correlator.apply([this,index](float t){dev.sample(t);}, index);
 	dev.update();
-	sample_index = index;
+	idev = dev.idev() * polarity;
+	sync_sample_index = index;
 }
 
 void M17Demodulator::dcd_on()
 {
 	// Data carrier newly detected.
+	INFO("dcd = %d", int(dcd.level() * 100));
 	dcd_ = true;
 	dcd_indicator.on();
 	sync_count = 0;
@@ -71,73 +72,392 @@ void M17Demodulator::dcd_on()
 void M17Demodulator::dcd_off()
 {
 	// Just lost data carrier.
+	INFO("dcd = %d", int(dcd.level() * 100));
 	dcd_ = false;
 	dcd_indicator.off();
 	demodState = DemodState::UNLOCKED;
 }
 
-hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
+void M17Demodulator::initialize(const q15_t* input)
 {
-	str_indicator.on();
-	static bool need_clock_reset = false;
-	static bool need_clock_update = false;
+	auto filtered = demod_filter(input, 1.f / 2560.f);
+    for (size_t i = 0; i != ADC_BLOCK_SIZE; ++i)
+    {
+		auto filtered_sample = filtered[i];
+		correlator.sample(filtered_sample);
+    }
+}
 
-    hdlc::IoFrame* frame_result = nullptr;
-
-    const float inv = 1.0 / 2048.0;
+void M17Demodulator::update_dcd(const q15_t* input)
+{
+    static constexpr float inv = 1.0 / 2048.0;
 
     if (!dcd_ && dcd.dcd())
     {
     	dcd_on();
-    	need_clock_reset = true;
+    	need_clock_reset_ = true;
     }
     else if (dcd_ && !dcd.dcd())
     {
     	dcd_off();
     }
 
+    for (size_t i = 0; i != ADC_BLOCK_SIZE; ++i)
+    {
+    	dcd(input[i] * inv);
+    }
+}
+
+#if 0
+void M17Demodulator::adc_micro_adjustment()
+{
+   /*
+	 * This block does micro-adjustments to the timer counter to sync the
+	 * local clock to the remote clock.  It does a great job keeping the
+	 * clock in sync over multi-second transmissions.
+	 *
+	 * The downside is that there tends to be a lot of jitter during the
+	 * first few frames as the demodulator switches between the sync word
+	 * and the phase estimate for measuring the clock.
+	 *
+	 * It may be possible to tweak this to limit the adjustments to less
+	 * than half of a sample period
+	 */
+	auto clock = clock_recovery.clock_estimate();
+	if (clock != 1.0)
+	{
+		const float per_block = 1.0 / 192.0;
+		const uint32_t frequency = 120000000;
+		float diff = clock - 1.0;
+		int32_t change = frequency * diff * per_block - 4;
+		__disable_irq();
+		int32_t counter = __HAL_TIM_GET_COUNTER(&htim6);
+		counter -= change;
+		counter += counter >= 0 ? 0 : 2500;
+		__HAL_TIM_SET_COUNTER(&htim6, counter);
+		__enable_irq();
+	}
+}
+#endif
+
+[[gnu::noinline]]
+void M17Demodulator::do_unlocked()
+{
+	// We expect to find the preamble immediately after DCD.
+    if (missing_sync_count < 1920)
+	{
+		missing_sync_count += 1;
+		auto sync_index = preamble_sync(correlator);
+		auto sync_updated = preamble_sync.updated();
+		if (sync_updated)
+		{
+			sync_count = 0;
+			missing_sync_count = 0;
+			need_clock_reset_ = true;
+			dev.reset();
+			update_values(sync_index);
+			sample_index = sync_index;
+			ITM_SendChar('.');
+			demodState = DemodState::LSF_SYNC;
+			INFO("P sync %d", sync_index);
+		}
+	}
+	else // Otherwise we start searching for a sync word.
+	{
+		auto sync_index = lsf_sync(correlator);
+		auto sync_updated = lsf_sync.updated();
+		if (sync_updated)
+		{
+			sync_count = 0;
+			missing_sync_count = 0;
+			need_clock_reset_ = true;
+			dev.reset();
+			update_values(sync_index);
+			sample_index = sync_index;
+			demodState = DemodState::FRAME;
+			if (sync_updated < 0)
+			{
+				sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
+				INFO("S sync %d", int(sync_index));
+			}
+			else
+			{
+				sync_word_type = M17FrameDecoder::SyncWordType::LSF;
+				INFO("L sync %d", int(sync_index));
+			}
+		}
+	}
+}
+
+/**
+ * Check for LSF sync word.  We only enter the DemodState::LSF_SYNC state
+ * if a preamble sync has been detected, which also means that sample_index
+ * has been initialized to a sane value for the baseband.
+ */
+[[gnu::noinline]]
+void M17Demodulator::do_lsf_sync()
+{
+	float sync_triggered = 0.;
+
+	if (correlator.index() == sample_index)
+	{
+    	sync_triggered = preamble_sync.triggered(correlator);
+		if (sync_triggered != 0)
+		{
+			update_values(sample_index);
+			ITM_SendChar('.');
+			return;
+		}
+		sync_triggered = lsf_sync.triggered(correlator);
+		if (sync_triggered != 0)
+		{
+			missing_sync_count = 0;
+			need_clock_update_ = true;
+			update_values(sample_index);
+			if (sync_triggered > 0)
+			{
+				demodState = DemodState::FRAME;
+				sync_word_type = M17FrameDecoder::SyncWordType::LSF;
+				INFO("l sync %d", int(sample_index));
+			}
+			else
+			{
+				demodState = DemodState::FRAME;
+				sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
+				INFO("s sync %d", int(sample_index));
+			}
+		}
+		else if (++missing_sync_count > 192)
+		{
+			demodState = DemodState::UNLOCKED;
+			INFO("l unlock %d", int(missing_sync_count));
+			missing_sync_count = 0;
+		}
+		else
+		{
+			update_values(sample_index);
+		}
+	}
+}
+
+/**
+ * Check for a stream sync word (LSF sync word that is maximally negative).
+ * We can enter DemodState::STREAM_SYNC from either a valid LSF decode for
+ * an audio stream, or from a stream frame decode.
+ *
+ */
+[[gnu::noinline]]
+void M17Demodulator::do_stream_sync()
+{
+	uint8_t sync_index = lsf_sync(correlator);
+	int8_t sync_updated = lsf_sync.updated();
+	sync_count += 1;
+	if (sync_updated < 0)
+	{
+		missing_sync_count = 0;
+		if (sync_count <= 70)
+		{
+			update_values(sync_index);
+			sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
+			demodState = DemodState::FRAME;
+			INFO("s early");
+		}
+		else if (sync_count > 70)
+		{
+			update_values(sync_index);
+			sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
+			demodState = DemodState::FRAME;
+			INFO("s sync %d", int(sync_index));
+		}
+		return;
+	}
+    else if (sync_count > 87)
+    {
+    	update_values(sync_index);
+    	missing_sync_count += 1;
+    	if (missing_sync_count < MAX_MISSING_SYNC)
+    	{
+			sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
+			demodState = DemodState::FRAME;
+			INFO("s unsync %d", int(missing_sync_count));
+    	}
+    	else
+    	{
+			demodState = DemodState::LSF_SYNC;
+			INFO("s unlock");
+    	}
+    }
+}
+
+/**
+ * Check for a packet sync word.  DemodState::PACKET_SYNC can only be
+ * entered from a valid LSF frame decode with the data/packet type bit set.
+ */
+[[gnu::noinline]]
+void M17Demodulator::do_packet_sync()
+{
+	auto sync_index = packet_sync(correlator);
+	auto sync_updated = packet_sync.updated();
+	sync_count += 1;
+	if (sync_count > 70 && sync_updated)
+	{
+		missing_sync_count = 0;
+		update_values(sync_index);
+		sync_word_type = M17FrameDecoder::SyncWordType::PACKET;
+		demodState = DemodState::FRAME;
+		INFO("k sync");
+		return;
+	}
+	else if (sync_count > 87)
+	{
+		missing_sync_count += 1;
+    	if (missing_sync_count < MAX_MISSING_SYNC)
+    	{
+			sync_word_type = M17FrameDecoder::SyncWordType::PACKET;
+			demodState = DemodState::FRAME;
+			INFO("k unsync");
+    	}
+    	else
+    	{
+			demodState = DemodState::UNLOCKED;
+			INFO("k unlock");
+    	}
+	}
+}
+
+[[gnu::noinline]]
+void M17Demodulator::do_frame(float filtered_sample, hdlc::IoFrame*& frame_result)
+{
+	if (correlator.index() != sample_index) return;
+
+	auto sample = filtered_sample - dev.offset();
+	sample *= idev;
+
+	auto n = llr<float, 4>(sample);
+	int8_t* tmp;
+	auto len = framer(n, &tmp);
+	if (len != 0)
+	{
+		need_clock_update_ = true;
+
+		std::copy(tmp, tmp + len, buffer.begin());
+		auto valid = decoder(sync_word_type, buffer, frame_result, ber);
+		INFO("demod: %d, dt: %7d, evma: %5d, dev: %5d, freq: %5d, index: %d, %d, %d ber: %d",
+			int(decoder.state()), int(clock_recovery.clock_estimate() * 1000000),
+			int(dev.error() * 1000), int(dev.deviation() * 1000),
+			int(dev.offset() * 1000),
+			int(sample_index), int(clock_recovery.sample_index()), int(sync_sample_index),
+			ber);
+
+		if (ber > 30)
+			lsf_indicator.on();
+		else
+			lsf_indicator.off();
+
+		switch (decoder.state())
+		{
+		case M17FrameDecoder::State::STREAM:
+			demodState = DemodState::STREAM_SYNC;
+			break;
+		case M17FrameDecoder::State::LSF:
+			// If state == LSF, we need to recover LSF from LICH.
+			demodState = DemodState::STREAM_SYNC;
+			break;
+		default:
+			demodState = DemodState::PACKET_SYNC;
+			break;
+		}
+
+		sync_count = 0;
+
+		switch (valid)
+		{
+		case M17FrameDecoder::DecodeResult::FAIL:
+			WARN("decode invalid");
+			if (frame_result && !passall_)
+			{
+			   hdlc::release(frame_result);
+			   frame_result = nullptr;
+			}
+			break;
+		case M17FrameDecoder::DecodeResult::EOS:
+			demodState = DemodState::LSF_SYNC;
+			INFO("EOS");
+			break;
+		case M17FrameDecoder::DecodeResult::OK:
+			break;
+		case M17FrameDecoder::DecodeResult::INCOMPLETE:
+			break;
+		}
+	}
+}
+
+hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
+{
+	static int16_t initializing = 10;
+	static int8_t dcd_count = 0;
+
+    hdlc::IoFrame* frame_result = nullptr;
+
+    // We need to pump a few frames through on startup to initialize
+    // the demodulator.
+    if (__builtin_expect((initializing), 0))
+    {
+    	--initializing;
+    	initialize(input);
+    	return frame_result;
+    }
+
+	str_indicator.on();
+    update_dcd(input);
+
+    if (!dcd_)
+    {
+    	dcd_count = 0;
+        dcd.update();
+        str_indicator.off();
+        return frame_result;
+    }
+
+    // Do adc_micro_adjustment() here?
+
     auto filtered = demod_filter(input, 1.f / 2560.f);
 //    getModulator().loopback(filtered);
-
-    uint8_t pre_index;
-    uint8_t lsf_index;
-    uint8_t pkt_index = 0;
-
-    int8_t pre_updated = 0;
-    int8_t lsf_updated = 0;
-    int8_t pkt_updated = 0;
 
     for (size_t i = 0; i != ADC_BLOCK_SIZE; ++i)
     {
         auto filtered_sample = filtered[i];
-        m17::correlator.sample(filtered_sample);
-    	dcd(input[i] * inv);
-        if (!dcd_) continue; // No need to go further if no DCD.
+        correlator.sample(filtered_sample);
 
-        if (m17::correlator.index() == 0)
+        if (correlator.index() == 0)
         {
-			if (need_clock_reset)
+			if (need_clock_reset_)
 			{
 				clock_recovery.reset();
-				need_clock_reset = false;
+				need_clock_reset_ = false;
+				sample_index = sync_sample_index;
 			}
-			if (need_clock_update)
+			else if (need_clock_update_) // must avoid update immediately after reset.
 			{
 				clock_recovery.update();
-				auto idx = clock_recovery.sample_index();
-				if (abs(idx - sample_index) <= 1) sample_index = idx;
-				need_clock_update = false;
+				uint8_t clock_index = clock_recovery.sample_index();
+				uint8_t clock_diff = std::abs(sample_index - clock_index);
+				uint8_t sync_diff = std::abs(sample_index - sync_sample_index);
+				bool clock_diff_ok = clock_diff <= 1 || clock_diff == 9;
+				bool sync_diff_ok = sync_diff <= 1 || sync_diff == 9;
+				if (clock_diff_ok) sample_index = clock_index;
+				else if (sync_diff_ok) sample_index = sync_sample_index;
+				// else unchanged.
+				need_clock_update_ = false;
 			}
         }
 
     	clock_recovery(filtered_sample);
 
-		if (demodState != DemodState::UNLOCKED && m17::correlator.index() == sample_index)
+		if (demodState != DemodState::UNLOCKED && correlator.index() == sample_index)
 		{
 			dev.sample(filtered_sample);
 		}
-
-		float triggered;
 
         switch (demodState)
         {
@@ -145,216 +465,26 @@ hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
         	// In this state, the sample_index is unknown.  We need to find
         	// a sync word to find the proper sample_index.  We only leave
         	// this state if we believe that we have a valid sample_index.
-
-			pre_index = m17::preamble_sync(m17::correlator);
-			pre_updated = m17::preamble_sync.updated();
-			if (pre_updated)
-			{
-				sync_count = 0;
-				need_clock_reset = true;
-				dev.reset();
-				update_values(pre_index);
-				ITM_SendChar('.');
-				demodState = DemodState::LSF_SYNC;
-				INFO("p sync %d", pre_index);
-				break;
-			}
-			if (missing_sync_count > 1920)
-			{
-				ITM_SendChar('*');
-				need_clock_update = true;
-				demodState = DemodState::STREAM_SYNC;
-			}
-			missing_sync_count += 1;
+        	do_unlocked();
 			break;
         case DemodState::LSF_SYNC:
-        	if (m17::correlator.index() == sample_index)
-        	{
-            	triggered = m17::preamble_sync.triggered(m17::correlator);
-				if (triggered != 0)
-				{
-					update_values(sample_index);
-					ITM_SendChar('.');
-					break;
-				}
-				triggered = m17::lsf_sync.triggered(m17::correlator);
-				if (triggered != 0)
-				{
-					missing_sync_count = 0;
-					need_clock_update = true;
-					update_values(sample_index);
-					if (triggered > 0)
-					{
-						demodState = DemodState::FRAME;
-						sync_word_type = M17FrameDecoder::SyncWordType::LSF;
-						INFO("l sync %d", int(sample_index));
-					}
-					else
-					{
-						demodState = DemodState::FRAME;
-						sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
-						INFO("s sync %d", int(sample_index));
-					}
-				}
-				else if (++sync_count > 192)
-				{
-					demodState = DemodState::UNLOCKED;
-					INFO("l unlock %d", int(sync_count));
-				}
-				else
-				{
-					update_values(sample_index);
-				}
-        	}
+        	do_lsf_sync();
             break;
         case DemodState::STREAM_SYNC:
-			lsf_index = m17::lsf_sync(m17::correlator);
-			lsf_updated = m17::lsf_sync.updated();
-			sync_count += 1;
-			if (lsf_updated < 0)
-			{
-				missing_sync_count = 0;
-				if (sync_count <= 70)
-				{
-					update_values(lsf_index);
-					sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
-					demodState = DemodState::FRAME;
-					INFO("s early");
-				}
-				else if (sync_count > 70)
-				{
-					update_values(lsf_index);
-					sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
-					demodState = DemodState::FRAME;
-					INFO("s sync %d", int(lsf_index));
-				}
-				break;
-			}
-            else if (sync_count > 97)
-            {
-				dev.update();
-            	missing_sync_count += 1;
-            	if (missing_sync_count < MAX_MISSING_SYNC)
-            	{
-					sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
-					demodState = DemodState::FRAME;
-					INFO("s unsync %d", int(missing_sync_count));
-            	}
-            	else
-            	{
-					demodState = DemodState::LSF_SYNC;
-					INFO("s unlock");
-            	}
-            }
+        	do_stream_sync();
             break;
         case DemodState::PACKET_SYNC:
-			pkt_index = m17::packet_sync(m17::correlator);
-			pkt_updated = m17::packet_sync.updated();
-			sync_count += 1;
-			if (sync_count > 70 && pkt_updated)
-			{
-				missing_sync_count = 0;
-				update_values(pkt_index);
-				sync_word_type = M17FrameDecoder::SyncWordType::PACKET;
-				demodState = DemodState::FRAME;
-				INFO("k sync");
-				break;
-			}
-			else if (sync_count > 98)
-			{
-				missing_sync_count += 1;
-            	if (missing_sync_count < MAX_MISSING_SYNC)
-            	{
-					sync_word_type = M17FrameDecoder::SyncWordType::PACKET;
-					demodState = DemodState::FRAME;
-					INFO("k unsync");
-            	}
-            	else
-            	{
-					demodState = DemodState::UNLOCKED;
-					INFO("k unlock");
-            	}
-			}
+        	do_packet_sync();
 			break;
         case DemodState::FRAME:
-			if (m17::correlator.index() == sample_index)
-			{
-				auto demod_result = demod(filtered_sample);
-				auto [sample, phase, symbol, evm] = demod_result;
-
-				auto n = llr<float, 4>(sample);
-				int8_t* tmp;
-				auto len = framer(n, &tmp);
-				if (len != 0)
-				{
-					need_clock_update = true;
-
-					std::copy(tmp, tmp + len, buffer.begin());
-					auto valid = decoder(sync_word_type, buffer, frame_result, ber);
-					INFO("demod: %d, dt: %7d, evma: %5d, dev: %5d, freq: %5d, locked: %d, ber: %d",
-						int(decoder.state()), int(clock_recovery.clock_estimate() * 1000000),
-						int(symbol_evm.evm() * 1000), int(dev.deviation() * 1000),
-						int(dev.offset() * 1000),
-						int(clock_recovery.sample_index()), ber);
-
-					switch (decoder.state())
-					{
-					case M17FrameDecoder::State::STREAM:
-						lsf_indicator.off();
-						demodState = DemodState::STREAM_SYNC;
-						break;
-					case M17FrameDecoder::State::LSF:
-						// If state == LSF, we need to recover LSF from LICH.
-						lsf_indicator.on();
-						demodState = DemodState::STREAM_SYNC;
-						break;
-					default:
-						demodState = DemodState::PACKET_SYNC;
-						break;
-					}
-
-					sync_count = 0;
-
-					switch (valid)
-					{
-					case M17FrameDecoder::DecodeResult::FAIL:
-						WARN("decode invalid");
-						if (frame_result && !passall_)
-						{
-						   if (frame_result) hdlc::release(frame_result);
-						   frame_result = nullptr;
-						}
-						break;
-					case M17FrameDecoder::DecodeResult::EOS:
-						demodState = DemodState::LSF_SYNC;
-						INFO("EOS");
-						break;
-					case M17FrameDecoder::DecodeResult::OK:
-						// INFO("valid frame for sw %d", int(sync_word_type));
-						break;
-					case M17FrameDecoder::DecodeResult::INCOMPLETE:
-						// INFO("lich frame for sw %d", int(sync_word_type));
-						break;
-					}
-				}
-			}
+        	do_frame(filtered_sample,frame_result);
 			break;
         }
     }
+    dcd.update();
     str_indicator.off();
 
     return frame_result;
-}
-
-M17Demodulator::demod_result_t M17Demodulator::demod(float sample)
-{
-	sample -= dev.offset();
-	sample *= dev.idev();
-    auto [symbol, evm] = symbol_evm(sample);
-    evm_average = symbol_evm.evm();
-    float polarity = kiss::settings().rx_rev_polarity() ? -1.f : 1.f;
-
-    return std::make_tuple(sample, 0.f, symbol * polarity, evm);
 }
 
 }} // mobilinkd::tnc

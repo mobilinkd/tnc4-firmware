@@ -30,7 +30,7 @@ float Correlator::correlate(sync_t sync)
 
 
 /**
- * Get the average outer symbol levels at a given index.  This makes trhee
+ * Get the average outer symbol levels at a given index.  This makes three
  * assumptions.
  *
  *  1. The max symbol value is above 0 and the min symbol value is below 0.
