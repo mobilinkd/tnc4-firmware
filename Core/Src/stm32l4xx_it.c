@@ -233,91 +233,6 @@ void DebugMon_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI line0 interrupt.
-  */
-void EXTI0_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI0_IRQn 0 */
-    GPIO_PinState state2 = HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
-    GPIO_PinState state1 = HAL_GPIO_ReadPin(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
-
-    if (state2 == GPIO_PIN_SET)
-    {
-      int state = (state1 == GPIO_PIN_SET ? CMD_BT_DEEP_SLEEP : CMD_BT_ACCESS);
-      osMessagePut(ioEventQueueHandle, state, 0);
-    } else {
-      int state = (state1 == GPIO_PIN_SET ? CMD_BT_TX : CMD_BT_IDLE);
-      osMessagePut(ioEventQueueHandle, state, 0);
-    }
-
-  /* USER CODE END EXTI0_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
-  /* USER CODE BEGIN EXTI0_IRQn 1 */
-
-  /* USER CODE END EXTI0_IRQn 1 */
-}
-
-/**
-  * @brief This function handles EXTI line1 interrupt.
-  */
-void EXTI1_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI1_IRQn 0 */
-    if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
-    {
-    	osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
-    } else {
-    	osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
-    }
-
-  /* USER CODE END EXTI1_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
-  /* USER CODE BEGIN EXTI1_IRQn 1 */
-
-  /* USER CODE END EXTI1_IRQn 1 */
-}
-
-/**
-  * @brief This function handles EXTI line2 interrupt.
-  */
-void EXTI2_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI2_IRQn 0 */
-    if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
-    {
-    	osMessagePut(ioEventQueueHandle, CMD_OVP_ERROR, 0);
-    } else {
-    	osMessagePut(ioEventQueueHandle, CMD_NO_OVP_ERROR, 0);
-    }
-
-  /* USER CODE END EXTI2_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2);
-  /* USER CODE BEGIN EXTI2_IRQn 1 */
-
-  /* USER CODE END EXTI2_IRQn 1 */
-}
-
-/**
-  * @brief This function handles EXTI line3 interrupt.
-  */
-void EXTI3_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI3_IRQn 0 */
-    if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
-    {
-    	osMessagePut(ioEventQueueHandle, CMD_BOOT_BUTTON_UP, 0);
-    } else {
-    	osMessagePut(ioEventQueueHandle, CMD_BOOT_BUTTON_DOWN, 0);
-    }
-
-  /* USER CODE END EXTI3_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_3);
-  /* USER CODE BEGIN EXTI3_IRQn 1 */
-
-  /* USER CODE END EXTI3_IRQn 1 */
-}
-
-/**
   * @brief This function handles DMA1 channel1 global interrupt.
   */
 void DMA1_Channel1_IRQHandler(void)
@@ -417,31 +332,6 @@ void ADC1_2_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles EXTI line[9:5] interrupts.
-  */
-void EXTI9_5_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI9_5_IRQn 0 */
-	static GPIO_PinState sw_state = GPIO_PIN_RESET;
-	GPIO_PinState new_state = HAL_GPIO_ReadPin(SW_POWER_GPIO_Port, SW_POWER_Pin);
-    if (new_state != sw_state)
-    {
-    	if (new_state == GPIO_PIN_RESET) {
-    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_UP, 0);
-    	} else {
-    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_DOWN, 0);
-    	}
-    }
-
-  /* USER CODE END EXTI9_5_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_5);
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_9);
-  /* USER CODE BEGIN EXTI9_5_IRQn 1 */
-
-  /* USER CODE END EXTI9_5_IRQn 1 */
-}
-
-/**
   * @brief This function handles TIM1 break interrupt and TIM15 global interrupt.
   */
 void TIM1_BRK_TIM15_IRQHandler(void)
@@ -471,26 +361,6 @@ void USART3_IRQHandler(void)
   /* USER CODE BEGIN USART3_IRQn 1 */
 
   /* USER CODE END USART3_IRQn 1 */
-}
-
-/**
-  * @brief This function handles EXTI line[15:10] interrupts.
-  */
-void EXTI15_10_IRQHandler(void)
-{
-  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
-	  if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
-	  {
-		  osMessagePut(ioEventQueueHandle, CMD_USB_CONNECTED, 0);
-	  } else {
-		  osMessagePut(ioEventQueueHandle, CMD_USB_DISCONNECTED, 0);
-	  }
-
-  /* USER CODE END EXTI15_10_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_13);
-  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
-
-  /* USER CODE END EXTI15_10_IRQn 1 */
 }
 
 /**
@@ -551,6 +421,143 @@ void DMAMUX1_OVR_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+  * @brief This function handles EXTI line0 interrupt.
+  */
+void EXTI0_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI0_IRQn 0 */
+    GPIO_PinState state2 = HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
+    GPIO_PinState state1 = HAL_GPIO_ReadPin(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
+
+    if (state2 == GPIO_PIN_SET)
+    {
+      int state = (state1 == GPIO_PIN_SET ? CMD_BT_DEEP_SLEEP : CMD_BT_ACCESS);
+      osMessagePut(ioEventQueueHandle, state, 0);
+    } else {
+      int state = (state1 == GPIO_PIN_SET ? CMD_BT_TX : CMD_BT_IDLE);
+      osMessagePut(ioEventQueueHandle, state, 0);
+    }
+
+  /* USER CODE END EXTI0_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+  /* USER CODE BEGIN EXTI0_IRQn 1 */
+
+  /* USER CODE END EXTI0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line1 interrupt.
+  */
+void EXTI1_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI1_IRQn 0 */
+    if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
+    {
+    	osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
+    } else {
+    	osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
+    }
+
+  /* USER CODE END EXTI1_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
+  /* USER CODE BEGIN EXTI1_IRQn 1 */
+
+  /* USER CODE END EXTI1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line2 interrupt.
+  */
+void EXTI2_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI2_IRQn 0 */
+    if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
+    {
+    	osMessagePut(ioEventQueueHandle, CMD_OVP_ERROR, 0);
+    } else {
+    	osMessagePut(ioEventQueueHandle, CMD_NO_OVP_ERROR, 0);
+    }
+
+  /* USER CODE END EXTI2_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2);
+  /* USER CODE BEGIN EXTI2_IRQn 1 */
+
+  /* USER CODE END EXTI2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line3 interrupt.
+  */
+void EXTI3_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI3_IRQn 0 */
+    if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
+    {
+    	osMessagePut(ioEventQueueHandle, CMD_BOOT_BUTTON_UP, 0);
+    } else {
+    	osMessagePut(ioEventQueueHandle, CMD_BOOT_BUTTON_DOWN, 0);
+    }
+
+  /* USER CODE END EXTI3_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_3);
+  /* USER CODE BEGIN EXTI3_IRQn 1 */
+
+  /* USER CODE END EXTI3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line[9:5] interrupts.
+  */
+void EXTI9_5_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI9_5_IRQn 0 */
+	static GPIO_PinState sw_state = GPIO_PIN_RESET;
+	static GPIO_PinState up_state = GPIO_PIN_RESET;
+
+	GPIO_PinState new_sw_state = HAL_GPIO_ReadPin(SW_POWER_GPIO_Port, SW_POWER_Pin);
+    if (new_sw_state != sw_state)
+    {
+    	sw_state = new_sw_state;
+    	if (sw_state == GPIO_PIN_RESET) {
+    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_UP, 0);
+    	} else {
+    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_DOWN, 0);
+    	}
+    }
+
+    GPIO_PinState new_up_state = HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin);
+    if (new_up_state != up_state)
+    {
+    	up_state = new_up_state;
+    	if (up_state == GPIO_PIN_SET) {
+		  osMessagePut(ioEventQueueHandle, CMD_USB_CONNECTED, 0);
+		} else {
+		  osMessagePut(ioEventQueueHandle, CMD_USB_DISCONNECTED, 0);
+		}
+    }
+
+  /* USER CODE END EXTI9_5_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_5);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_9);
+  /* USER CODE BEGIN EXTI9_5_IRQn 1 */
+
+  /* USER CODE END EXTI9_5_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line[15:10] interrupts.
+  */
+void EXTI15_10_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
+  /* USER CODE END EXTI15_10_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_13);
+  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
+
+  /* USER CODE END EXTI15_10_IRQn 1 */
+}
 
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

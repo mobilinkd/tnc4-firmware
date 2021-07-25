@@ -96,12 +96,6 @@ osStaticThreadDef_t modulatorTaskControlBlock;
 osMessageQId ioEventQueueHandle;
 uint8_t ioEventQueueBuffer[ 16 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t ioEventQueueControlBlock;
-osMessageQId serialInputQueueHandle;
-uint8_t serialInputQueueBuffer[ 16 * sizeof( void* ) ];
-osStaticMessageQDef_t serialInputQueueControlBlock;
-osMessageQId serialOutputQueueHandle;
-uint8_t serialOutputQueueBuffer[ 16 * sizeof( void* ) ];
-osStaticMessageQDef_t serialOutputQueueControlBlock;
 osMessageQId audioInputQueueHandle;
 uint8_t audioInputQueueBuffer[ 8 * sizeof( void* ) ];
 osStaticMessageQDef_t audioInputQueueControlBlock;
@@ -444,6 +438,13 @@ int main(void)
       error_message[0] = 0;
   }
 #endif
+
+  // Note that it is important that all GPIO interrupts are disabled until
+  // the FreeRTOS kernel has started.  All GPIO interrupts  send messages
+  // to the ioEventTask thread.  Attempts to use any message queues before
+  // FreeRTOS has started will lead to problems.  Because of this, these
+  // interrupts are enabled only when the ioEventTask thread starts.
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -520,6 +521,9 @@ int main(void)
       HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
   }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
+
   /* USER CODE END 2 */
 
   /* Create the mutex(es) */
@@ -544,20 +548,13 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
+
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
   /* definition and creation of ioEventQueue */
   osMessageQStaticDef(ioEventQueue, 16, uint32_t, ioEventQueueBuffer, &ioEventQueueControlBlock);
   ioEventQueueHandle = osMessageCreate(osMessageQ(ioEventQueue), NULL);
-
-  /* definition and creation of serialInputQueue */
-  osMessageQStaticDef(serialInputQueue, 16, void*, serialInputQueueBuffer, &serialInputQueueControlBlock);
-  serialInputQueueHandle = osMessageCreate(osMessageQ(serialInputQueue), NULL);
-
-  /* definition and creation of serialOutputQueue */
-  osMessageQStaticDef(serialOutputQueue, 16, void*, serialOutputQueueBuffer, &serialOutputQueueControlBlock);
-  serialOutputQueueHandle = osMessageCreate(osMessageQ(serialOutputQueue), NULL);
 
   /* definition and creation of audioInputQueue */
   osMessageQStaticDef(audioInputQueue, 8, void*, audioInputQueueBuffer, &audioInputQueueControlBlock);
@@ -585,6 +582,8 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+
+  #pragma GCC diagnostic pop
 
   // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
   if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024) != HAL_OK) Error_Handler();
@@ -651,7 +650,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of ioEventTask */
@@ -1626,6 +1625,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(SW_BOOT_GPIO_Port, &GPIO_InitStruct);
+
 }
 
 /* USER CODE BEGIN 4 */
@@ -1773,6 +1773,8 @@ void SysClock48()
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
+    if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 48000000) return;
+
     INFO("Setting 48MHz SysClock.");
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1819,6 +1821,8 @@ void SysClock72()
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
+    if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 72000000) return;
+
     INFO("Setting 72MHz SysClock.");
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1864,6 +1868,8 @@ void SysClock80()
 	return;
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
+
+    if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 80000000) return;
 
     INFO("Setting 80MHz SysClock.");
 

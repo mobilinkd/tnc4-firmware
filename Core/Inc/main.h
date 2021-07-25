@@ -75,10 +75,8 @@ void Error_Handler(void);
 #define TCXO_EN_GPIO_Port GPIOH
 #define BT_STATE1_Pin GPIO_PIN_0
 #define BT_STATE1_GPIO_Port GPIOC
-#define BT_STATE1_EXTI_IRQn EXTI0_IRQn
 #define BT_STATE2_Pin GPIO_PIN_1
 #define BT_STATE2_GPIO_Port GPIOC
-#define BT_STATE2_EXTI_IRQn EXTI1_IRQn
 #define BT_CMD2_Pin GPIO_PIN_2
 #define BT_CMD2_GPIO_Port GPIOC
 #define BT_CMD3_Pin GPIO_PIN_3
@@ -133,7 +131,6 @@ void Error_Handler(void);
 #define BT_RESET_GPIO_Port GPIOB
 #define SW_BOOT_Pin GPIO_PIN_3
 #define SW_BOOT_GPIO_Port GPIOH
-#define SW_BOOT_EXTI_IRQn EXTI3_IRQn
 /* USER CODE BEGIN Private defines */
 #define BT_STATE1_EXTI_IRQn EXTI0_IRQn
 #define BT_STATE2_EXTI_IRQn EXTI1_IRQn
@@ -147,9 +144,17 @@ void Error_Handler(void);
 #define BATTERY_ADC_CHANNEL ADC_CHANNEL_16
 #define LED_PWM_TIMER_HANDLE htim8
 #define EEPROM_I2C hi2c1
+#define SERIAL_UART huart3
 
 #define USB_CE_Pin GPIO_PIN_4
 #define USB_CE_GPIO_Port GPIOB
+
+// #define TNC_HAS_LSCO -- Not available on TNC3+, use MCO instead.
+#define TNC_HAS_SWO
+#define TNC_HAS_LSE
+#define TNC_HAS_HSE
+#define TNC_HAS_MCO
+#define TNC_HAS_BT
 
 #define CMD_USB_CDC_CONNECT  1
 #define CMD_USB_CDC_DISCONNECT 2
