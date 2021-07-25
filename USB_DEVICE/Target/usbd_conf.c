@@ -797,15 +797,6 @@ uint32_t USBD_LL_GetRxDataSize(USBD_HandleTypeDef *pdev, uint8_t ep_addr)
   return HAL_PCD_EP_GetRxCount((PCD_HandleTypeDef*) pdev->pData, ep_addr);
 }
 
- /**
-   * @brief  Handle USB VBUS detection upon external interrupt
-   * @param  GPIO_Pin
-   */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-     HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
-}
-
 /**
   * @brief  Send LPM message to user layer
   * @param  hpcd: PCD handle
