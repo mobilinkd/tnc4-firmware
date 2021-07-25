@@ -11,13 +11,8 @@ void AFSKModulator::init(const kiss::Hardware& hw)
 
     SysClock48();
 
-#ifndef NUCLEOTNC
     // Configure 48MHz clock for 26.4ksps.
-    htim7.Init.Period = 4544;
-#else
-    // Using an 80MHz clock on NucleoTNC.
-    htim7.Init.Period = 3029;
-#endif
+    htim7.Init.Period = 1817;
     if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
     {
         ERROR("htim7 init failed");

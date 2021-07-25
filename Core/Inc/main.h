@@ -58,8 +58,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-void sendMessage(int cmd);
-void sendMessage2(int cmd, uint32_t timeout);
+
 
 /* USER CODE END EFP */
 
@@ -146,7 +145,11 @@ void sendMessage2(int cmd, uint32_t timeout);
 // Compatibility defines
 #define BATTERY_ADC_HANDLE hadc2
 #define BATTERY_ADC_CHANNEL ADC_CHANNEL_16
+#define LED_PWM_TIMER_HANDLE htim8
+#define EEPROM_I2C hi2c1
 
+#define USB_CE_Pin GPIO_PIN_4
+#define USB_CE_GPIO_Port GPIOB
 
 #define CMD_USB_CDC_CONNECT  1
 #define CMD_USB_CDC_DISCONNECT 2

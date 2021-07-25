@@ -33,7 +33,7 @@ struct Fsk9600Demodulator : IDemodulator
     static_assert(audio::ADC_BUFFER_SIZE >= ADC_BLOCK_SIZE);
 
     static constexpr uint32_t SAMPLE_RATE = 192000;
-    static constexpr uint16_t VREF = 4095;
+    static constexpr uint16_t VREF = 16383;
 
     using bpf_coeffs_type = std::array<int16_t, FILTER_TAP_NUM>;
     using bpf_bank_type = std::array<bpf_coeffs_type, 13>;
@@ -54,14 +54,14 @@ struct Fsk9600Demodulator : IDemodulator
 
     void start() override
     {
-        SysClock80();
+        SysClock72();
 
         auto const& bpf_coeffs = bpf_bank[kiss::settings().rx_twist + 3];
         const q15_t* bpf = bpf_coeffs.data();
         demod_filter.init(bpf);
         passall(kiss::settings().options & KISS_OPTION_PASSALL);
 
-        hadc1.Init.OversamplingMode = DISABLE;
+        hadc1.Init.OversamplingMode = ENABLE;
         if (HAL_ADC_Init(&hadc1) != HAL_OK)
         {
             CxxErrorHandler();
@@ -72,13 +72,13 @@ struct Fsk9600Demodulator : IDemodulator
         sConfig.Channel = AUDIO_IN;
         sConfig.Rank = ADC_REGULAR_RANK_1;
         sConfig.SingleDiff = ADC_SINGLE_ENDED;
-        sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
+        sConfig.SamplingTime = ADC_SAMPLETIME_6CYCLES_5;
         sConfig.OffsetNumber = ADC_OFFSET_NONE;
         sConfig.Offset = 0;
         if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
             CxxErrorHandler();
 
-        startADC(1249, ADC_BLOCK_SIZE);
+        startADC(374, ADC_BLOCK_SIZE);
     }
 
     void stop() override

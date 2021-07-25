@@ -1,49 +1,54 @@
 // Copyright 2020-2021 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
-#include "M17Demodulator.h"
 #include "AudioLevel.hpp"
+#include "M17Demodulator.h"
+#include "Util.h"
 
 #include "main.h"
 
 #include "stm32l4xx_hal.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
 namespace mobilinkd { namespace tnc {
 
-m17::Indicator lsf_indicator{GPIOB, GPIO_PIN_0};
-m17::Indicator dcd_indicator{GPIOA, GPIO_PIN_7};
-m17::Indicator str_indicator{GPIOA, GPIO_PIN_6};
+//m17::Indicator lsf_indicator{GPIOB, GPIO_PIN_0};
+//m17::Indicator dcd_indicator{GPIOA, GPIO_PIN_7};
+//m17::Indicator str_indicator{GPIOA, GPIO_PIN_2};
 
 void M17Demodulator::start()
 {
     SysClock72();
+#if defined(HAVE_LSCO)
+    HAL_RCCEx_DisableLSCO();
+#endif
 
-    demod_filter.init(m17::rrc_taps_f15.data());
+    demod_filter.init(m17::rrc_taps_f15);
     passall(kiss::settings().options & KISS_OPTION_PASSALL);
     polarity = kiss::settings().rx_rev_polarity() ? -1 : 1;
     audio::virtual_ground = (VREF + 1) / 2;
 
-//    hadc1.Init.OversamplingMode = DISABLE;
-//    if (HAL_ADC_Init(&hadc1) != HAL_OK)
-//    {
-//        CxxErrorHandler();
-//    }
+    hadc1.Init.OversamplingMode = ENABLE;
+    if (HAL_ADC_Init(&hadc1) != HAL_OK)
+    {
+        CxxErrorHandler();
+    }
 
     ADC_ChannelConfTypeDef sConfig;
 
     sConfig.Channel = AUDIO_IN;
     sConfig.Rank = ADC_REGULAR_RANK_1;
     sConfig.SingleDiff = ADC_SINGLE_ENDED;
-    sConfig.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+    sConfig.SamplingTime = ADC_SAMPLETIME_12CYCLES_5;
     sConfig.OffsetNumber = ADC_OFFSET_NONE;
     sConfig.Offset = 0;
     if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
         CxxErrorHandler();
 
-    startADC(2499, ADC_BLOCK_SIZE);
+    startADC(1499, ADC_BLOCK_SIZE);
 //    getModulator().start_loopback();
     dcd_off();
 }
@@ -61,12 +66,12 @@ void M17Demodulator::dcd_on()
 	// Data carrier newly detected.
 	INFO("dcd = %d", int(dcd.level() * 100));
 	dcd_ = true;
-	dcd_indicator.on();
 	sync_count = 0;
 	dev.reset();
     framer.reset();
     decoder.reset();
 	missing_sync_count = 0;
+//    dcd_indicator.off();
 }
 
 void M17Demodulator::dcd_off()
@@ -74,13 +79,22 @@ void M17Demodulator::dcd_off()
 	// Just lost data carrier.
 	INFO("dcd = %d", int(dcd.level() * 100));
 	dcd_ = false;
-	dcd_indicator.off();
 	demodState = DemodState::UNLOCKED;
+//    dcd_indicator.on();
+    adc_timing_adjust = 0;
+    prev_clock_estimate = 1.;
 }
 
 void M17Demodulator::initialize(const q15_t* input)
 {
-	auto filtered = demod_filter(input, 1.f / 2560.f);
+
+    static constexpr float scale = 1.f / 2560.f;
+
+    for (size_t i = 0; i != ADC_BLOCK_SIZE; i++) {
+        demod_buffer[i] = float(input[i]) * scale;
+    }
+
+    auto filtered = demod_filter(demod_buffer.data());
     for (size_t i = 0; i != ADC_BLOCK_SIZE; ++i)
     {
 		auto filtered_sample = filtered[i];
@@ -108,38 +122,6 @@ void M17Demodulator::update_dcd(const q15_t* input)
     }
 }
 
-#if 0
-void M17Demodulator::adc_micro_adjustment()
-{
-   /*
-	 * This block does micro-adjustments to the timer counter to sync the
-	 * local clock to the remote clock.  It does a great job keeping the
-	 * clock in sync over multi-second transmissions.
-	 *
-	 * The downside is that there tends to be a lot of jitter during the
-	 * first few frames as the demodulator switches between the sync word
-	 * and the phase estimate for measuring the clock.
-	 *
-	 * It may be possible to tweak this to limit the adjustments to less
-	 * than half of a sample period
-	 */
-	auto clock = clock_recovery.clock_estimate();
-	if (clock != 1.0)
-	{
-		const float per_block = 1.0 / 192.0;
-		const uint32_t frequency = 120000000;
-		float diff = clock - 1.0;
-		int32_t change = frequency * diff * per_block - 4;
-		__disable_irq();
-		int32_t counter = __HAL_TIM_GET_COUNTER(&htim6);
-		counter -= change;
-		counter += counter >= 0 ? 0 : 2500;
-		__HAL_TIM_SET_COUNTER(&htim6, counter);
-		__enable_irq();
-	}
-}
-#endif
-
 [[gnu::noinline]]
 void M17Demodulator::do_unlocked()
 {
@@ -157,7 +139,6 @@ void M17Demodulator::do_unlocked()
 			dev.reset();
 			update_values(sync_index);
 			sample_index = sync_index;
-			ITM_SendChar('.');
 			demodState = DemodState::LSF_SYNC;
 			INFO("P sync %d", sync_index);
 		}
@@ -202,29 +183,30 @@ void M17Demodulator::do_lsf_sync()
 	if (correlator.index() == sample_index)
 	{
     	sync_triggered = preamble_sync.triggered(correlator);
-		if (sync_triggered != 0)
+        // INFO("PSync = %d", int(sync_triggered));
+		if (sync_triggered > 0.1)
 		{
-			update_values(sample_index);
 			ITM_SendChar('.');
 			return;
 		}
 		sync_triggered = lsf_sync.triggered(correlator);
-		if (sync_triggered != 0)
+		if (std::abs(sync_triggered) > 0.1)
 		{
 			missing_sync_count = 0;
 			need_clock_update_ = true;
 			update_values(sample_index);
+			INFO("LSync = %d", int(sync_triggered));
 			if (sync_triggered > 0)
 			{
 				demodState = DemodState::FRAME;
 				sync_word_type = M17FrameDecoder::SyncWordType::LSF;
-				INFO("l sync %d", int(sample_index));
+				INFO("+l sync %d", int(sample_index));
 			}
 			else
 			{
 				demodState = DemodState::FRAME;
 				sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
-				INFO("s sync %d", int(sample_index));
+				INFO("+s sync %d", int(sample_index));
 			}
 		}
 		else if (++missing_sync_count > 192)
@@ -330,10 +312,10 @@ void M17Demodulator::do_frame(float filtered_sample, hdlc::IoFrame*& frame_resul
 {
 	if (correlator.index() != sample_index) return;
 
-	auto sample = filtered_sample - dev.offset();
+	float sample = filtered_sample - dev.offset();
 	sample *= idev;
 
-	auto n = llr<float, 4>(sample);
+	auto n = mobilinkd::llr<float, 4>(sample);
 	int8_t* tmp;
 	auto len = framer(n, &tmp);
 	if (len != 0)
@@ -348,11 +330,6 @@ void M17Demodulator::do_frame(float filtered_sample, hdlc::IoFrame*& frame_resul
 			int(dev.offset() * 1000),
 			int(sample_index), int(clock_recovery.sample_index()), int(sync_sample_index),
 			ber);
-
-		if (ber > 30)
-			lsf_indicator.on();
-		else
-			lsf_indicator.off();
 
 		switch (decoder.state())
 		{
@@ -395,7 +372,6 @@ void M17Demodulator::do_frame(float filtered_sample, hdlc::IoFrame*& frame_resul
 hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
 {
 	static int16_t initializing = 10;
-	static int8_t dcd_count = 0;
 
     hdlc::IoFrame* frame_result = nullptr;
 
@@ -408,20 +384,26 @@ hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
     	return frame_result;
     }
 
-	str_indicator.on();
+//	str_indicator.on();
     update_dcd(input);
 
     if (!dcd_)
     {
-    	dcd_count = 0;
         dcd.update();
-        str_indicator.off();
+//        str_indicator.off();
         return frame_result;
     }
 
     // Do adc_micro_adjustment() here?
+    // adc_micro_adjustment();
 
-    auto filtered = demod_filter(input, 1.f / 2560.f);
+    static constexpr float scale = 1.f / 2560.f;
+
+    for (size_t i = 0; i != ADC_BLOCK_SIZE; i++) {
+        demod_buffer[i] = float(input[i]) * scale;
+    }
+
+    auto filtered = demod_filter(demod_buffer.data());
 //    getModulator().loopback(filtered);
 
     for (size_t i = 0; i != ADC_BLOCK_SIZE; ++i)
@@ -436,6 +418,7 @@ hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
 				clock_recovery.reset();
 				need_clock_reset_ = false;
 				sample_index = sync_sample_index;
+				adc_timing_adjust = 0;
 			}
 			else if (need_clock_update_) // must avoid update immediately after reset.
 			{
@@ -482,7 +465,7 @@ hdlc::IoFrame* M17Demodulator::operator()(const q15_t* input)
         }
     }
     dcd.update();
-    str_indicator.off();
+//    str_indicator.off();
 
     return frame_result;
 }

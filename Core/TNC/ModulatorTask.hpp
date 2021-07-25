@@ -1,11 +1,11 @@
-// Copyright 2015-2021 Mobilinkd LLC <rob@mobilinkd.com>
+// Copyright 2015-2020 Mobilinkd LLC <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
 
 #include "PTT.hpp"
 #include "Encoder.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 #ifdef __cplusplus
 extern "C" {

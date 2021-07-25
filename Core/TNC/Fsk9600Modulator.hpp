@@ -83,7 +83,7 @@ struct Fsk9600Modulator : Modulator
 
     void send(uint8_t bit) override
     {
-        uint8_t scrambled = lfsr(bit);
+        auto scrambled = lfsr(bit);
 
         switch (state)
         {
@@ -103,10 +103,12 @@ struct Fsk9600Modulator : Modulator
             start_conversion();
             break;
         case State::RUNNING:
-            osMessageQueuePut(dacOutputQueueHandle_, &scrambled, 0, osWaitForever);
+            osMessagePut(dacOutputQueueHandle_, scrambled, osWaitForever);
             break;
         }
     }
+
+    void tone(uint16_t freq) override {}
 
     // DAC DMA interrupt functions.
 
@@ -165,8 +167,7 @@ struct Fsk9600Modulator : Modulator
             HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
         // Drain the queue.
-        uint32_t junk;
-        while (osMessageQueueGet(dacOutputQueueHandle_, &junk, 0, 0) == osOK);
+        while (osMessageGet(dacOutputQueueHandle_, 0).status == osEventMessage);
     }
 
     float bits_per_ms() const override

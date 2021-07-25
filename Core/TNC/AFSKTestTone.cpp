@@ -5,24 +5,16 @@
 #include "ModulatorTask.hpp"
 #include "Modulator.hpp"
 #include "KissHardware.hpp"
-#include "Log.h"
 
 #include "stm32l4xx_hal.h"
-#include "cmsis_os2.h"
 
 extern RNG_HandleTypeDef hrng;
-extern osThreadId testToneTaskHandle;
 
-mobilinkd::tnc::AFSKTestTone mobilinkd::tnc::testTone;
-void* testTonePtr = &mobilinkd::tnc::testTone;
-
-void startAfskToneTask(void* arg)
+void startAfskToneTask(void const* arg)
 {
     using mobilinkd::tnc::AFSKTestTone;
 
-    INFO("startAfskToneTask")
-
-    auto test = static_cast<AFSKTestTone*>(arg);
+    auto test = static_cast<const AFSKTestTone*>(arg);
 
     while (true) {
         switch (test->state()) {
@@ -40,13 +32,23 @@ void startAfskToneTask(void* arg)
     }
 }
 
+uint32_t testToneTaskBuffer[ 256 ];
+osStaticThreadDef_t testToneTaskControlBlock;
+static osThreadStaticDef(testToneTask, startAfskToneTask, osPriorityIdle, 0,
+    256, testToneTaskBuffer, &testToneTaskControlBlock);
+
 namespace mobilinkd { namespace tnc {
+
+AFSKTestTone::AFSKTestTone()
+{
+  testToneTask_ = osThreadCreate(osThread(testToneTask), this);
+  osThreadSuspend(testToneTask_);
+}
 
 void AFSKTestTone::transmit(State prev)
 {
     if (prev == State::NONE) {
-      osThreadResume(testToneTaskHandle);
-      INFO("RNG: CR = %08x, DR = %08x, SR = %08x", hrng.Instance->CR, hrng.Instance->DR, hrng.Instance->SR);
+      osThreadResume(testToneTask_);
     }
 }
 
@@ -77,12 +79,14 @@ void AFSKTestTone::stop()
 
     state_ = State::NONE;
     getModulator().abort();
-    osThreadSuspend(testToneTaskHandle);
+    osThreadSuspend(testToneTask_);
 }
 
-void AFSKTestTone::fill()
+void AFSKTestTone::fill() const
 {
-	while (lfsr_ == 0) lfsr_ = HAL_GetTick() & 0x00ffffff;
+    static State current = State::SPACE;
+    static uint32_t random = 0;
+    static uint8_t counter = 0;
 
     switch (state_) {
     case AFSKTestTone::State::NONE:
@@ -100,6 +104,7 @@ void AFSKTestTone::fill()
     case AFSKTestTone::State::SPACE:
         if (kiss::settings().modem_type == kiss::Hardware::ModemType::M17)
         {
+            getModulator().tone(1);
             getModulator().send(0x22);
         }
         else
@@ -110,27 +115,22 @@ void AFSKTestTone::fill()
     case AFSKTestTone::State::BOTH:
         if (kiss::settings().modem_type == kiss::Hardware::ModemType::M17)
         {
-        	/*
-            if ((counter_ & 3) == 0)
+            if ((counter & 3) == 0)
             {
-                auto status = HAL_RNG_GenerateRandomNumber(&hrng, &random_);
+                auto status = HAL_RNG_GenerateRandomNumber(&hrng, &random);
                 if (status != HAL_OK)
                 {
-                    WARN("RNG failure code %d - %lu (%lu)", status, hrng.ErrorCode, counter_)
+                    WARN("RNG failure code %d", status);
                 }
             }
-            getModulator().send(random_ & 0xFF);
-            random_ >>= 8;
-            counter_ += 1;
-            */
-        	getModulator().send(lfsr_ & 0xFF);
-        	for (int i = 0; i != 8; ++i)
-        		lfsr_ = ((__builtin_popcount(lfsr_ & 0x87lu) & 1) << 23) | (lfsr_ >> 1);
+            getModulator().send(random & 0xFF);
+            random >>= 8;
+            counter += 1;
         }
         else
         {
-            getModulator().send(current_state_ == State::SPACE);
-            current_state_ = (current_state_ == State::MARK ? State::SPACE : State::MARK);
+            getModulator().send(current == State::SPACE);
+            current = (current == State::MARK ? State::SPACE : State::MARK);
         }
         break;
     default:

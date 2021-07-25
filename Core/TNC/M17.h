@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include "Correlator.h"
-
 #include <array>
 #include <cstdint>
 #include <cstddef>
@@ -29,10 +27,6 @@ extern const std::array<float, FILTER_TAP_NUM_15> rrc_taps_f15;
 constexpr std::array<uint8_t, 2> LSF_SYNC = { 0x55, 0xF7 };
 constexpr std::array<uint8_t, 2> STREAM_SYNC = { 0xFF, 0x5D };
 constexpr std::array<uint8_t, 2> PACKET_SYNC = { 0x75, 0xFF };
-
-extern const std::array<int16_t, 8> LSF_SYNC_CONV;
-extern const std::array<int16_t, 8> STREAM_SYNC_CONV;
-extern const std::array<int16_t, 8> PACKET_SYNC_CONV;
 
 inline constexpr uint16_t sync_word(std::array<uint8_t, 2> sw)
 {

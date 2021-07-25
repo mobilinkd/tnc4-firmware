@@ -1,10 +1,10 @@
-// Copyright 2015 Mobilinkd LLC <rob@mobilinkd.com>
+// Copyright 2015-2021 Mobilinkd LLC <rob@mobilinkd.com>
 // All rights reserved.
 
 #include "HdlcFrame.hpp"
 #include "Log.h"
 #include "main.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 namespace mobilinkd { namespace tnc { namespace hdlc {
 
@@ -18,14 +18,12 @@ IoFramePool& ioFramePool() {
 void release(IoFrame* frame)
 {
     ioFramePool().release(frame);
-    printf("< %d\r\n", ioFramePool().size());
 }
 
 IoFrame* acquire()
 {
     auto result = ioFramePool().acquire();
     if (result == nullptr) CxxErrorHandler();
-    printf("> %d\r\n", ioFramePool().size());
     return result;
 }
 
@@ -36,7 +34,6 @@ IoFrame* acquire_wait()
     while ((result = ioFramePool().acquire()) == nullptr) {
         osThreadYield();
     }
-    printf("> %d\r\n", ioFramePool().size());
     return result;
 }
 

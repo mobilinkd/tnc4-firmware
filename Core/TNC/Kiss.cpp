@@ -20,10 +20,8 @@ void handle_frame(uint8_t frame_type, hdlc::IoFrame* frame) {
     uint8_t value = *(frame->begin());
     switch (frame_type) {
     case kiss::FRAME_DATA:
-    	// This should never happen.
-        ERROR("FRAME_DATA in handle_frame");
-        CxxErrorHandler();
-        // osMessageQueuePut(hdlcOutputQueueHandle, &frame, 0, 0);
+        TNC_DEBUG("FRAME_DATA");
+        // osMessagePut(hdlcOutputQueueHandle, (uint32_t) frame, 0);
         break;
     case kiss::FRAME_TX_DELAY:
         TNC_DEBUG("FRAME_TX_DELAY");

@@ -24,11 +24,19 @@
 #include "usbd_cdc_if.h"
 #include "usb_device.h"
 #include "usbd_core.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
-extern osMessageQueueId_t hdlcOutputQueueHandle;
+extern osMessageQId hdlcOutputQueueHandle;
+
+#ifdef STM32L4P5xx
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
-extern osTimerId_t usbShutdownTimerHandle;
+#define HPCD hpcd_USB_OTG_FS
+#else
+extern PCD_HandleTypeDef hpcd_USB_FS;
+#define HPCD hpcd_USB_FS
+#endif
+
+extern osTimerId usbShutdownTimerHandle;
 extern IWDG_HandleTypeDef hiwdg;
 
 extern "C" void stop2(void);
@@ -42,7 +50,7 @@ static PTT getPttStyle(const mobilinkd::tnc::kiss::Hardware& hardware)
     return hardware.options & KISS_OPTION_PTT_SIMPLEX ? PTT::SIMPLEX : PTT::MULTIPLEX;
 }
 
-void startIOEventTask(void*)
+void startIOEventTask(void const*)
 {
     using namespace mobilinkd::tnc;
 
@@ -89,11 +97,10 @@ void startIOEventTask(void*)
         HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 6, 0);
         HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
-        HAL_NVIC_SetPriority(USB_POWER_EXTI_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(USB_POWER_EXTI_IRQn);
-
+#ifdef OVP_ERROR_EXTI_IRQn
         HAL_NVIC_SetPriority(OVP_ERROR_EXTI_IRQn, 6, 0);
         HAL_NVIC_EnableIRQ(OVP_ERROR_EXTI_IRQn);
+#endif
 
         // FIXME: this is probably not right
         if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
@@ -125,21 +132,18 @@ void startIOEventTask(void*)
     uint32_t power_button_counter{0};
     uint32_t power_button_duration{0};
 
-    using hdlc::IoFrame;
-
     /* Infinite loop */
     for (;;)
     {
-    	IoFrame* frame;
-        auto status = osMessageQueueGet(ioEventQueueHandle, &frame, 0, 100);
+        osEvent evt = osMessageGet(ioEventQueueHandle, 100);
         if (hdlc::ioFramePool().size() != 0)
             HAL_IWDG_Refresh(&hiwdg);
         else
             CxxErrorHandler();
-        if (status != osOK)
+        if (evt.status != osEventMessage)
             continue;
 
-        uint32_t cmd = (uint32_t) frame;
+        uint32_t cmd = evt.value.v;
         if (cmd < FLASH_BASE) // Assumes FLASH_BASE < SRAM_BASE.
         {
             switch (cmd) {
@@ -154,7 +158,8 @@ void startIOEventTask(void*)
                         GPIO_PIN_RESET);
                     INFO("CDC Opened");
                     indicate_connected_via_usb();
-                    sendAudioMessage(audio::DEMODULATOR, osWaitForever);
+                    osMessagePut(audioInputQueueHandle,
+                        audio::DEMODULATOR, osWaitForever);
                 }
                 break;
             case CMD_USB_DISCONNECTED:
@@ -163,8 +168,11 @@ void startIOEventTask(void*)
                 if (powerOffViaUSB()) {
                     shutdown(0); // ***NO RETURN***
                 } else {
-                    HAL_PCD_MspDeInit(&hpcd_USB_OTG_FS);
-                    HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
+#ifdef STM32L433xx
+                    HPCD.Instance->BCDR = 0;
+#endif
+                    HAL_PCD_MspDeInit(&HPCD);
+                    HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_SET);
 //                    SysClock4();
                     if (ioport != getUsbPort())
                     {
@@ -175,7 +183,8 @@ void startIOEventTask(void*)
             case CMD_USB_CDC_DISCONNECT:
                 if (cdc_connected) {
                     cdc_connected = false;
-                    sendAudioMessage(audio::IDLE, osWaitForever);
+                    osMessagePut(audioInputQueueHandle, audio::IDLE,
+                        osWaitForever);
                     kiss::getAFSKTestTone().stop();
                     closeCDC();
                     INFO("CDC Closed");
@@ -195,7 +204,8 @@ void startIOEventTask(void*)
                 INFO("Power Down");
                 power_button_counter = osKernelSysTick();
                 HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-                sendAudioMessage(audio::IDLE, osWaitForever);
+                osMessagePut(audioInputQueueHandle, audio::IDLE,
+                    osWaitForever);
                 break;
             case CMD_POWER_BUTTON_UP:
                 TNC_DEBUG("Power Up");
@@ -217,32 +227,38 @@ void startIOEventTask(void*)
                 break;
             case CMD_BOOT_BUTTON_UP:
                 TNC_DEBUG("BOOT Up");
-                sendAudioMessage(audio::AUTO_ADJUST_INPUT_LEVEL, osWaitForever);
+                osMessagePut(audioInputQueueHandle,
+                    audio::AUTO_ADJUST_INPUT_LEVEL,
+                    osWaitForever);
                 if (ioport != getNullPort())
                 {
-                	sendAudioMessage(audio::DEMODULATOR, osWaitForever);
+                    osMessagePut(audioInputQueueHandle,
+                        audio::DEMODULATOR, osWaitForever);
                 }
                 else
                 {
-                	sendAudioMessage(audio::IDLE, osWaitForever);
+                    osMessagePut(audioInputQueueHandle,
+                        audio::IDLE, osWaitForever);
                 }
                 break;
             case CMD_BT_CONNECT:
                 TNC_DEBUG("BT Connect");
                 if (openSerial())
                 {
-                	sendAudioMessage(audio::DEMODULATOR, osWaitForever);
+                    osMessagePut(audioInputQueueHandle,
+                        audio::DEMODULATOR, osWaitForever);
                     INFO("BT Opened");
                     indicate_connected_via_ble();
-                    HAL_PCD_EP_SetStall(&hpcd_USB_OTG_FS, CDC_CMD_EP);
+                    HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
                 }
                 break;
             case CMD_BT_DISCONNECT:
                 INFO("BT Disconnect");
                 closeSerial();
                 indicate_waiting_to_connect();
-                HAL_PCD_EP_ClrStall(&hpcd_USB_OTG_FS, CDC_CMD_EP);
-                sendAudioMessage(audio::IDLE, osWaitForever);
+                HAL_PCD_EP_ClrStall(&HPCD, CDC_CMD_EP);
+                osMessagePut(audioInputQueueHandle, audio::IDLE,
+                    osWaitForever);
                 kiss::getAFSKTestTone().stop();
                 INFO("BT Closed");
                 break;
@@ -281,13 +297,16 @@ void startIOEventTask(void*)
                 INFO("VBUS Detected");
 //                SysClock48();
                 MX_USB_DEVICE_Init();
-                HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
-                HAL_PCDEx_ActivateBCD(&hpcd_USB_OTG_FS);
-                HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
+                HAL_PCD_MspInit(&HPCD);
+#ifdef STM32L433xx
+                HPCD.Instance->BCDR = 0;
+#endif
+                HAL_PCDEx_ActivateBCD(&HPCD);
+                HAL_PCDEx_BCD_VBUSDetect(&HPCD);
                 break;
             case CMD_USB_CHARGE_ENABLE:
                 INFO("USB charging enabled");
-                HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
                 charging_enabled = 1;
                 if (go_back_to_sleep) shutdown(0);
                 break;
@@ -300,12 +319,12 @@ void startIOEventTask(void*)
             case CMD_USB_DISCOVERY_ERROR:
                 // This happens when powering VBUS from a bench supply.
                 osTimerStop(usbShutdownTimerHandle);
-                HAL_PCDEx_DeActivateBCD(&hpcd_USB_OTG_FS);
+                HAL_PCDEx_DeActivateBCD(&HPCD);
                 if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
                 {
                     INFO("Not a recognized USB charging device");
                     INFO("USB charging enabled");
-                    HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
+                    HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
                     charging_enabled = 1;
                 }
                 if (go_back_to_sleep) shutdown(0);
@@ -329,13 +348,15 @@ void startIOEventTask(void*)
                 INFO("USB resume");
                 break;
             default:
-                WARN("unknown command = %04x", cmd);
+                WARN("unknown command = %04x", static_cast<unsigned int>(cmd));
                 break;
             }
             continue;
         }
 
-        // INFO("frame = %p", frame);
+        using hdlc::IoFrame;
+
+        auto frame = static_cast<IoFrame*>(evt.value.p);
 
         if (frame->source() & IoFrame::RF_DATA)
         {
@@ -344,6 +365,8 @@ void startIOEventTask(void*)
             if (!ioport->write(frame, frame->size() + 100))
             {
                 ERROR("Timed out sending frame");
+                // The frame has been passed to the write() call.  It owns it now.
+                // hdlc::release(frame);
             }
         }
         else
@@ -352,8 +375,8 @@ void startIOEventTask(void*)
             if ((frame->type() & 0x0F) == IoFrame::DATA)
             {
             	kiss::getAFSKTestTone().stop();
-                if (osMessageQueuePut(hdlcOutputQueueHandle,
-                    &frame, 0,
+                if (osMessagePut(hdlcOutputQueueHandle,
+                    reinterpret_cast<uint32_t>(frame),
                     osWaitForever) != osOK)
                 {
                     ERROR("Failed to write frame to TX queue");

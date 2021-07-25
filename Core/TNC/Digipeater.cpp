@@ -30,11 +30,11 @@ void startDigipeaterTask(void* arg)
   auto digi = static_cast<Digipeater*>(arg);
   for(;;)
   {
-	IoFrame* frame;
-    auto status = osMessageQueueGet(digipeaterQueueHandle, &frame, 0, osWaitForever);
-    if (status != osOK) continue;
+    osEvent evt = osMessageGet(digipeaterQueueHandle, osWaitForever);
+    if (evt.status != osEventMessage) continue;
 
-    if (frame < FLASH_BASE) // Assumes FLASH_BASE < SRAM_BASE.
+    uint32_t cmd = evt.value.v;
+    if (cmd < FLASH_BASE) // Assumes FLASH_BASE < SRAM_BASE.
     {
       // this is a command, not a packet.
       return;
@@ -42,9 +42,11 @@ void startDigipeaterTask(void* arg)
 
     digi->clean_history();
 
+    auto frame = static_cast<IoFrame*>(evt.value.p);
+
     if (!digi->can_repeat(frame)) continue;
 
-//    auto digi_frame = digi->rewrite_frame(frame);
+    auto digi_frame = digi->rewrite_frame(frame);
 
   }
 }

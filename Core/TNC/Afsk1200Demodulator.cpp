@@ -102,11 +102,11 @@ float Afsk1200Demodulator::readTwist()
         uint32_t count = 0;
         while (count < ADC_BLOCK_SIZE)
         {
-        	audio::adc_pool_type::chunk_type* block;
-            auto status = osMessageQueueGet(adcInputQueueHandle, &block, 0, osWaitForever);
-            if (status != osOK)
+            osEvent evt = osMessageGet(adcInputQueueHandle, osWaitForever);
+            if (evt.status != osEventMessage)
                 continue;
 
+            auto block = (audio::adc_pool_type::chunk_type*) evt.value.p;
             uint16_t* data = (uint16_t*) block->buffer;
             gf1200(data, ADC_BLOCK_SIZE);
             gf2200(data, ADC_BLOCK_SIZE);
@@ -142,11 +142,27 @@ uint32_t Afsk1200Demodulator::readBatteryLevel()
 #ifndef NUCLEOTNC
     TNC_DEBUG("enter Afsk1200Demodulator::readBatteryLevel");
 
+    ADC_ChannelConfTypeDef sConfig;
+
+    sConfig.Channel = ADC_CHANNEL_VREFINT;
+    sConfig.Rank = ADC_REGULAR_RANK_1;
+    sConfig.SingleDiff = ADC_SINGLE_ENDED;
+    sConfig.SamplingTime = ADC_SAMPLETIME_92CYCLES_5;
+    sConfig.OffsetNumber = ADC_OFFSET_NONE;
+    sConfig.Offset = 0;
+    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+        CxxErrorHandler();
+
     htim6.Init.Period = 48000;
     if (HAL_TIM_Base_Init(&htim6) != HAL_OK) CxxErrorHandler();
 
     if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
         CxxErrorHandler();
+
+    if (HAL_ADC_Start(&hadc1) != HAL_OK) CxxErrorHandler();
+    if (HAL_ADC_PollForConversion(&hadc1, 3) != HAL_OK) CxxErrorHandler();
+    auto vrefint = HAL_ADC_GetValue(&hadc1);
+    if (HAL_ADC_Stop(&hadc1) != HAL_OK) CxxErrorHandler();
 
     // Disable battery charging while measuring battery voltage.
     auto usb_ce = gpio::USB_CE::get();
@@ -154,6 +170,10 @@ uint32_t Afsk1200Demodulator::readBatteryLevel()
 
     gpio::BAT_DIVIDER::off();
     HAL_Delay(1);
+
+    sConfig.Channel = BATTERY_ADC_CHANNEL;
+    if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK)
+        CxxErrorHandler();
 
     uint32_t vbat = 0;
     if (HAL_ADC_Start(&BATTERY_ADC_HANDLE) != HAL_OK) CxxErrorHandler();
@@ -174,11 +194,17 @@ uint32_t Afsk1200Demodulator::readBatteryLevel()
     // Restore battery charging state.
     if (!usb_ce) gpio::USB_CE::off();
 
+    INFO("Vref = %lu", vrefint);
     INFO("Vbat = %lu (raw)", vbat);
 
     // Order of operations is important to avoid underflow.
     vbat *= 6600;
     vbat /= (VREF + 1);
+
+    uint32_t vref = ((vrefint * 3300) + (VREF / 2)) / VREF;
+
+    INFO("Vref = %lumV", vref);
+    INFO("Vbat = %lumV", vbat);
 
     TNC_DEBUG("exit Afsk1200Demodulator::readBatteryLevel");
     return vbat;

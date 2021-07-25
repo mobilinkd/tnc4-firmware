@@ -1,16 +1,18 @@
-// Copyright 2017-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2017 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
-#pragma once
 
-#include <cmsis_os2.h>
+#ifndef MOBILINKD__TNC__DIGIPEATER_HPP_
+#define MOBILINKD__TNC__DIGIPEATER_HPP_
+
+#include <cmsis_os.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern osThreadId_t digipeaterTaskHandle;
-extern osMessageQueueId_t digipeaterQueueHandle;
+extern osThreadId digipeaterTaskHandle;
+extern osMessageQId digipeaterQueueHandle;
 
 void startDigipeaterTask(void* arg);
 void beacon(void* arg);
@@ -82,3 +84,5 @@ struct Digipeater
 }} // mobilinkd::tnc
 
 #endif // __cplusplus
+
+#endif // MOBILINKD__TNC__DIGIPEATER_HPP_

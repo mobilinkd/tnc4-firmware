@@ -16,7 +16,7 @@
 
 #include "main.h"
 
-#include <cmsis_os2.h>
+#include <cmsis_os.h>
 
 #include <cstdint>
 
@@ -69,23 +69,25 @@ struct Encoder : public ::mobilinkd::Encoder
         send_delay_ = true;
         while (running_) {
             state_ = state_type::STATE_IDLE;
-            IoFrame* frame;
-            osStatus_t status = osMessageQueueGet(input_, &frame, 0, osWaitForever);
-            if (status == osOK) {
-                if (frame == nullptr) return;
+            osEvent evt = osMessageGet(input_, osWaitForever);
+            if (evt.status == osEventMessage) {
+                if (evt.value.p == nullptr) return;
                 tx_delay_ = kiss::settings().txdelay;
                 tx_tail_ = kiss::settings().txtail;
                 p_persist_ = kiss::settings().ppersist;
                 slot_time_ = kiss::settings().slot;
                 duplex_ = kiss::settings().duplex;
+                auto frame = (IoFrame*) evt.value.p;
                 process(frame);
                 // See if we have back-to-back frames.
-                if (osMessageQueueGetCount(input_) == 0) {
+                evt = osMessagePeek(input_, 0);
+                if (evt.status != osEventMessage) {
                     send_raw(IDLE);
                     send_raw(IDLE);
                     send_delay_ = true;
                     if (!duplex_) {
-                    	sendAudioMessage(audio::DEMODULATOR, osWaitForever);
+                      osMessagePut(audioInputQueueHandle, audio::DEMODULATOR,
+                        osWaitForever);
                     }
                 }
             }
@@ -206,7 +208,7 @@ struct Encoder : public ::mobilinkd::Encoder
                 return;
             }
             if (!duplex_) {
-            	sendAudioMessage(audio::IDLE, osWaitForever);
+                osMessagePut(audioInputQueueHandle, audio::IDLE, osWaitForever);
             }
             send_delay();
             send_delay_ = false;

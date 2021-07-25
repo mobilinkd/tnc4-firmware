@@ -1,4 +1,4 @@
-// Copyright 2020-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2020 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
@@ -7,7 +7,7 @@
 #include "KissHardware.hpp"
 
 #include "stm32l4xx_hal.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 #include <cstdint>
 
@@ -15,9 +15,6 @@ extern osMessageQId hdlcOutputQueueHandle;
 extern osMessageQId dacOutputQueueHandle;
 extern TIM_HandleTypeDef htim7;
 extern DAC_HandleTypeDef hdac1;
-
-extern "C" osStatus_t sendTransmitMessage(void* frame, uint32_t timeout);
-extern "C" osStatus_t sendDacMessage(void* frame, uint32_t timeout);
 
 namespace mobilinkd { namespace tnc {
 
@@ -61,6 +58,8 @@ struct Modulator
      * @param bit
      */
     virtual void send(uint8_t symbol) = 0;
+
+    virtual void tone(uint16_t freq) = 0;
 
     /// The next three functions are called by the DAC DMA interrupt handler.
 

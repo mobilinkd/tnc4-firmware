@@ -1,33 +1,32 @@
 // Copyright 2016 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
-#pragma once
+#ifndef MOBILINKD__TNC__AFSK_TEST_TONE_HPP_
+#define MOBILINKD__TNC__AFSK_TEST_TONE_HPP_
 
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 extern "C" void startAfskToneTask(void* arg);
-extern "C" void* testTonePtr;
 
 namespace mobilinkd { namespace tnc {
 
 struct AFSKTestTone
 {
     enum class State {MARK, SPACE, BOTH, NONE};
+    AFSKTestTone();
     void transmit(State prev);
     void mark();
     void space();
     void both();
     void stop();
-    void fill();
+    void fill() const;
     State state() const { return state_; }
 
-    State state_ = State::NONE;
-    State current_state_ = State::SPACE;
-    uint32_t random_ = 0;
-    uint32_t counter_ = 0;
-    uint32_t lfsr_ = 0;
+    State state_{State::NONE};
+    osThreadId testToneTask_{0};
 };
 
-extern AFSKTestTone testTone;
-
 }} // mobilinkd::tnc
+
+
+#endif // MOBILINKD__TNC__AFSK_TEST_TONE_HPP_

@@ -1,4 +1,4 @@
-// Copyright 2015-2020 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2015-2021 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
@@ -26,7 +26,7 @@ struct IirFilter {
 
     ~IirFilter() {}
 
-    void reset() { history_.fill(0.0); }
+    static constexpr size_t size() { return N; }
 
 	float operator()(float input)
 	{
@@ -49,5 +49,3 @@ struct IirFilter {
 };
 
 }} // mobilinkd::tnc
-
-

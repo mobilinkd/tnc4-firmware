@@ -18,7 +18,6 @@
 #include "M17Framer.h"
 #include "Modulator.hpp"
 #include "ModulatorTask.hpp"
-#include "SymbolEvm.h"
 #include "Util.h"
 
 #include <arm_math.h>
@@ -35,13 +34,12 @@ struct M17Demodulator : IDemodulator
     static constexpr uint32_t ADC_BLOCK_SIZE = 192;
     static_assert(audio::ADC_BUFFER_SIZE >= ADC_BLOCK_SIZE);
 
-    static constexpr std::array<float, 3> evm_b = {0.02008337,  0.04016673, 0.02008337};
-    static constexpr std::array<float, 3> evm_a = {1.0       , -1.56101808, 0.64135154};
-
     static constexpr uint32_t SAMPLE_RATE = 48000;
     static constexpr uint32_t SYMBOL_RATE = 4800;
     static constexpr uint32_t SAMPLES_PER_SYMBOL = SAMPLE_RATE / SYMBOL_RATE;
     static constexpr uint16_t VREF = 16383;
+    static constexpr int16_t MAX_SAMPLE_ADJUST = 140;
+    static constexpr int16_t MIN_SAMPLE_ADJUST = -140;
 
     static constexpr float sample_rate = SAMPLE_RATE;
     static constexpr float symbol_rate = SYMBOL_RATE;
@@ -54,13 +52,14 @@ struct M17Demodulator : IDemodulator
     enum class DemodState { UNLOCKED, LSF_SYNC, STREAM_SYNC, PACKET_SYNC, FRAME };
 
     audio_filter_t demod_filter;
+    std::array<float, ADC_BLOCK_SIZE> demod_buffer;
     m17::DataCarrierDetect<float, SAMPLE_RATE, 500> dcd{2500, 4000, 1.0, 10.0};
     m17::ClockRecovery<float, SAMPLE_RATE, SYMBOL_RATE> clock_recovery;
 
     m17::Correlator correlator;
     sync_word_t preamble_sync{{+3,-3,+3,-3,+3,-3,+3,-3}, 29.f};
-    sync_word_t lsf_sync{{+3,+3,+3,+3,-3,-3,+3,-3}, 32.f, -31.f};
-    sync_word_t packet_sync{{3,-3,3,3,-3,-3,-3,-3}, 31.f};
+    sync_word_t lsf_sync{{+3,+3,+3,+3,-3,-3,+3,-3}, 31.f, -31.f};
+    sync_word_t packet_sync{{3,-3,3,3,-3,-3,-3,-3}, 32.f};
 
     m17::FreqDevEstimator<float> dev;
 
@@ -82,6 +81,9 @@ struct M17Demodulator : IDemodulator
     int16_t sync_count = 0;
     uint16_t missing_sync_count = 0;
     uint8_t sync_sample_index = 0;
+    int16_t adc_timing_adjust = 0;
+    float prev_clock_estimate = 1.;
+
 
     virtual ~M17Demodulator() {}
 
@@ -139,11 +141,27 @@ struct M17Demodulator : IDemodulator
 #ifndef NUCLEOTNC
         TNC_DEBUG("enter M17Demodulator::readBatteryLevel");
 
+        ADC_ChannelConfTypeDef sConfig;
+
+        sConfig.Channel = ADC_CHANNEL_VREFINT;
+        sConfig.Rank = ADC_REGULAR_RANK_1;
+        sConfig.SingleDiff = ADC_SINGLE_ENDED;
+        sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
+        sConfig.OffsetNumber = ADC_OFFSET_NONE;
+        sConfig.Offset = 0;
+        if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+            CxxErrorHandler();
+
         htim6.Init.Period = 48000;
         if (HAL_TIM_Base_Init(&htim6) != HAL_OK) CxxErrorHandler();
 
         if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
             CxxErrorHandler();
+
+        if (HAL_ADC_Start(&hadc1) != HAL_OK) CxxErrorHandler();
+        if (HAL_ADC_PollForConversion(&hadc1, 3) != HAL_OK) CxxErrorHandler();
+        auto vrefint = HAL_ADC_GetValue(&hadc1);
+        if (HAL_ADC_Stop(&hadc1) != HAL_OK) CxxErrorHandler();
 
         // Disable battery charging while measuring battery voltage.
         auto usb_ce = gpio::USB_CE::get();
@@ -151,6 +169,10 @@ struct M17Demodulator : IDemodulator
 
         gpio::BAT_DIVIDER::off();
         HAL_Delay(1);
+
+        sConfig.Channel = BATTERY_ADC_CHANNEL;
+        if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK)
+            CxxErrorHandler();
 
         uint32_t vbat = 0;
         if (HAL_ADC_Start(&BATTERY_ADC_HANDLE) != HAL_OK) CxxErrorHandler();
@@ -171,11 +193,17 @@ struct M17Demodulator : IDemodulator
         // Restore battery charging state.
         if (!usb_ce) gpio::USB_CE::off();
 
+        INFO("Vref = %lu", vrefint);
         INFO("Vbat = %lu (raw)", vbat);
 
         // Order of operations is important to avoid underflow.
-        vbat *= 12375;
+        vbat *= 6600;
         vbat /= (VREF + 1);
+
+        uint32_t vref = ((vrefint * 3300) + (VREF / 2)) / VREF;
+
+        INFO("Vref = %lumV", vref)
+        INFO("Vbat = %lumV", vbat);
 
         TNC_DEBUG("exit M17Demodulator::readBatteryLevel");
         return vbat;

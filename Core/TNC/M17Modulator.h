@@ -26,7 +26,7 @@ struct M17Modulator : Modulator
     // Six buffers per M17 frame, or 12 half-buffer interrupts.
     static constexpr uint8_t UPSAMPLE = 10;
     static constexpr uint32_t BLOCKSIZE = 4;
-    static constexpr uint32_t STATE_SIZE = (m17::FILTER_TAP_NUM_9 / UPSAMPLE) + BLOCKSIZE - 1;
+    static constexpr uint32_t STATE_SIZE = (m17::FILTER_TAP_NUM_15 / UPSAMPLE) + BLOCKSIZE - 1;
     static constexpr int16_t DAC_BUFFER_LEN = 80;               // 8 symbols, 16 bits, 2 bytes.
     static constexpr int16_t TRANSFER_LEN = DAC_BUFFER_LEN / 2; // 4 symbols, 8 bits, 1 byte.
     static constexpr uint16_t VREF = 4095;
@@ -39,18 +39,18 @@ struct M17Modulator : Modulator
     osMessageQId dacOutputQueueHandle_{0};
     PTT* ptt_{nullptr};
     uint16_t volume_{4096};
-    uint16_t tx_delay = 0;		   // TX delay
-    uint16_t delay_count = 0;      // Current TX delay count
-    uint16_t stop_count = 0;       // Flush the RRC matched filter.
+    volatile uint16_t delay_count = 0;      // TX Delay
+    volatile uint16_t stop_count = 0;       // Flush the RRC matched filter.
     State state{State::STOPPED};
     float tmp[TRANSFER_LEN];
+    bool send_tone = false;
 
     M17Modulator(osMessageQId queue, PTT* ptt)
     : dacOutputQueueHandle_(queue), ptt_(ptt)
     {
         arm_fir_interpolate_init_f32(
-            &fir_interpolator, UPSAMPLE, m17::FILTER_TAP_NUM_9,
-            (float32_t*) m17::rrc_taps_f9.data(), fir_state.data(), BLOCKSIZE);
+            &fir_interpolator, UPSAMPLE, m17::FILTER_TAP_NUM_15,
+            (float32_t*) m17::rrc_taps_f15.data(), fir_state.data(), BLOCKSIZE);
     }
 
     ~M17Modulator() override {}
@@ -97,6 +97,8 @@ struct M17Modulator : Modulator
 
     void send(uint8_t bits) override
     {
+        uint16_t txdelay = 0;
+
         switch (state)
         {
         case State::STOPPING:
@@ -105,27 +107,39 @@ struct M17Modulator : Modulator
             HAL_RCCEx_DisableLSCO();
 #endif
             delay_count = 0;
-            tx_delay = kiss::settings().txdelay * 12 - 5;
-            start_empty(buffer_.data());
-            start_empty(buffer_.data() + TRANSFER_LEN);
+            txdelay = kiss::settings().txdelay * 12 - 5;
+            fill_empty(buffer_.data());
+            fill_empty(buffer_.data() + TRANSFER_LEN);
             state = State::STARTING;
             [[fallthrough]];
         case State::STARTING:
-            sendAudioMessage(tnc::audio::IDLE, osWaitForever);
+            osMessagePut(audioInputQueueHandle, tnc::audio::IDLE,
+              osWaitForever);
             start_conversion();
             ptt_->on();
-            while (delay_count < tx_delay)
-            {
-            	osThreadYield();
-            }
+            while (delay_count < txdelay) osThreadYield();
             stop_count = 4; // 16 symbols to flush the RRC filter.
-            osMessageQueuePut(dacOutputQueueHandle_, &bits, 0, osWaitForever);
+            osMessagePut(dacOutputQueueHandle_, bits, osWaitForever);
             state = State::RUNNING;
             break;
         case State::RUNNING:
-            osMessageQueuePut(dacOutputQueueHandle_, &bits, 9, osWaitForever);
+            osMessagePut(dacOutputQueueHandle_, bits, osWaitForever);
             break;
         }
+    }
+
+    constexpr std::array<float, 48> make_1000hz_tone()
+    {
+        std::array<float, 48> result;
+        for (size_t i = 0; i != result.size(); ++i) {
+            result[i] = std::sin(M_PI * i * 2.0 / result.size()) * 3;
+        }
+        return result;
+    }
+
+    void tone(uint16_t) override
+    {
+        send_tone = true;
     }
 
     // DAC DMA interrupt functions.
@@ -155,7 +169,7 @@ struct M17Modulator : Modulator
         switch (state)
         {
         case State::STARTING:
-            start_empty(buffer_.data());
+            fill_empty(buffer_.data());
             delay_count += 1;
             break;
         case State::RUNNING:
@@ -172,7 +186,9 @@ struct M17Modulator : Modulator
 #if defined(KISS_LOGGING) && defined(HAVE_LSCO)
                 HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
-            sendAudioMessage(tnc::audio::DEMODULATOR, 0);
+            osMessagePut(audioInputQueueHandle, tnc::audio::DEMODULATOR,
+              osWaitForever);
+
             break;
         }
     }
@@ -191,7 +207,7 @@ struct M17Modulator : Modulator
         switch (state)
         {
         case State::STARTING:
-        	start_empty(buffer_.data() + TRANSFER_LEN);
+            fill_empty(buffer_.data() + TRANSFER_LEN);
             delay_count += 1;
             break;
         case State::RUNNING:
@@ -208,7 +224,8 @@ struct M17Modulator : Modulator
 #if defined(KISS_LOGGING) && defined(HAVE_LSCO)
                 HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
-            sendAudioMessage(tnc::audio::DEMODULATOR, 0);
+            osMessagePut(audioInputQueueHandle, tnc::audio::DEMODULATOR,
+              osWaitForever);
             break;
         }
     }
@@ -216,14 +233,14 @@ struct M17Modulator : Modulator
     void abort() override
     {
         state = State::STOPPED;
+        send_tone = false;
         stop_conversion();
         ptt_->off();
 #if defined(KISS_LOGGING) && defined(HAVE_LSCO)
             HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
         // Drain the queue.
-        uint32_t junk;
-        while (osMessageQueueGet(dacOutputQueueHandle_, &junk, 0, 0) == osOK);
+        while (osMessageGet(dacOutputQueueHandle_, 0).status == osEventMessage);
     }
 
     float bits_per_ms() const override
@@ -294,14 +311,33 @@ private:
         }
     }
 
+    void fill_tone(int16_t* buffer)
+    {
+        static uint8_t pos = 0;
+        static const auto Hz1000 = make_1000hz_tone();
+
+        int16_t polarity = kiss::settings().tx_rev_polarity() ? -1 : 1;
+
+        for (size_t i = 0; i != TRANSFER_LEN; ++i) {
+            buffer[i] = adjust_level(Hz1000[pos++] * polarity);
+            if (pos == Hz1000.size()) pos = 0;
+        }
+    }
+
     [[gnu::noinline]]
     void fill(int16_t* buffer, uint8_t bits)
     {
+        if (send_tone)
+        {
+            fill_tone(buffer);
+            return;
+        }
+
         int16_t polarity = kiss::settings().tx_rev_polarity() ? -1 : 1;
 
         for (size_t i = 0; i != 4; ++i)
         {
-            symbols[i] = bits_to_symbol((bits >> 6) & 3) * polarity;
+            symbols[i] = bits_to_symbol(bits >> 6) * polarity;
             bits <<= 2;
         }
 
@@ -313,19 +349,11 @@ private:
             buffer[i] = adjust_level(tmp[i]);
         }
     }
-
+#if 0
     [[gnu::noinline]]
-    void start_empty(int16_t* buffer)
+    void fill_empty(int16_t* buffer)
     {
-        int16_t polarity = kiss::settings().tx_rev_polarity() ? -1 : 1;
-
-        uint8_t bits = 0x77;
-
-        for (size_t i = 0; i != 4; ++i)
-        {
-            symbols[i] = bits_to_symbol((bits >> 6) & 3) * polarity;
-            bits <<= 2;
-        }
+        symbols.fill(0);
 
         arm_fir_interpolate_f32(
             &fir_interpolator, symbols.data(), tmp, BLOCKSIZE);
@@ -335,11 +363,12 @@ private:
             buffer[i] = adjust_level(tmp[i]);
         }
     }
-
+#endif
 
     [[gnu::noinline]]
     void fill_empty(int16_t* buffer)
     {
+        send_tone = false;
         for (size_t i = 0; i != TRANSFER_LEN; ++i)
         {
             buffer[i] = 2048;

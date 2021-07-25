@@ -10,6 +10,7 @@
 #include "AFSKModulator.hpp"
 #include "KissHardware.hpp"
 #include "main.h"
+#include "Log.h"
 
 mobilinkd::tnc::SimplexPTT simplexPtt;
 mobilinkd::tnc::MultiplexPTT multiplexPtt;
@@ -19,20 +20,18 @@ mobilinkd::Encoder* encoder;
 
 // DMA Conversion half complete.
 extern "C" void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef*) {
-	uint32_t value;
-    auto status = osMessageQueueGet(dacOutputQueueHandle, &value, 0, 0);
-    if (status == osOK) {
-        modulator->fill_first(value);
+    osEvent evt = osMessageGet(dacOutputQueueHandle, 0);
+    if (evt.status == osEventMessage) {
+        modulator->fill_first(evt.value.v);
     } else {
         modulator->empty_first();
     }
 }
 
 extern "C" void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef*) {
-	uint32_t value;
-    auto status = osMessageQueueGet(dacOutputQueueHandle, &value, 0, 0);
-    if (status == osOK) {
-        modulator->fill_last(value);
+    osEvent evt = osMessageGet(dacOutputQueueHandle, 0);
+    if (evt.status == osEventMessage) {
+        modulator->fill_last(evt.value.v);
     } else {
         modulator->empty_last();
     }
@@ -40,16 +39,6 @@ extern "C" void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef*) {
 
 extern "C" void HAL_DAC_DMAUnderrunCallbackCh1(DAC_HandleTypeDef*) {
     modulator->abort();
-}
-
-extern "C" osStatus_t sendTransmitMessage(void* frame, uint32_t timeout)
-{
-	return osMessageQueuePut(hdlcOutputQueueHandle, &frame, 0, timeout);
-}
-
-extern "C" osStatus_t sendDacMessage(void* frame, uint32_t timeout)
-{
-	return osMessageQueuePut(dacOutputQueueHandle, &frame, 0, timeout);
 }
 
 mobilinkd::tnc::Modulator& getModulator()
@@ -89,6 +78,7 @@ mobilinkd::Encoder& getEncoder()
     case kiss::Hardware::ModemType::M17:
         return m17Encoder;
     default:
+    	ERROR("Invalid modem type %d", int(kiss::settings().modem_type));
         CxxErrorHandler();
     }
 }
@@ -133,8 +123,6 @@ void startModulatorTask(void const*)
 
     // Wait until hardware is initialized before creating modulator.
     osMutexWait(hardwareInitMutexHandle, osWaitForever);
-
-    INFO("Start modulator task");
 
     while (true)
     {

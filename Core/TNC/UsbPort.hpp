@@ -1,12 +1,10 @@
-// Copyright 2016-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2016 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
-#pragma once
+#ifndef MOBILINKD__TNC__USB_PORT_HPP_
+#define MOBILINKD__TNC__USB_PORT_HPP_
 
 #include "PortInterface.hpp"
-
-#include "cmsis_os2.h"
-
 namespace mobilinkd { namespace tnc {
 
 /**
@@ -23,7 +21,7 @@ struct UsbPort : PortInterface
     virtual bool isOpen() const { return open_; }
 
     virtual void close();
-    virtual osMessageQueueId_t queue() const { return queue_; }
+    virtual osMessageQId queue() const { return queue_; }
     virtual bool write(const uint8_t* data, uint32_t size, uint8_t type,
         uint32_t timeout);
     virtual bool write(const uint8_t* data, uint32_t size, uint32_t timeout);
@@ -46,9 +44,9 @@ private:
     void add_char(uint8_t c);
 
     bool open_{false};                  // opened/closed
-    osMutexId_t mutex_{0};                // TX Mutex
-    osMessageQueueId_t queue_{0};             // ISR read queue
-    osThreadId_t cdcTaskHandle_{0};       // CDC read handler
+    osMutexId mutex_{0};                // TX Mutex
+    osMessageQId queue_{0};             // ISR read queue
+    osThreadId cdcTaskHandle_{0};       // CDC read handler
     State state_{WAIT_FBEGIN};
     hdlc::IoFrame* frame_{nullptr};
 };
@@ -56,3 +54,5 @@ private:
 UsbPort* getUsbPort();
 
 }} // mobilinkd::tnc
+
+#endif // MOBILINKD__TNC__USB_PORT_HPP_

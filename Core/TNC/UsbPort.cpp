@@ -1,4 +1,4 @@
-// Copyright 2016-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2016 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #include "UsbPort.hpp"
@@ -8,7 +8,7 @@
 
 #include "usbd_cdc_if.h"
 #include "usb_device.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 extern "C" void TNC_Error_Handler(int dev, int err);
 
@@ -27,7 +27,7 @@ extern "C" void cdc_receive(const uint8_t* buf, uint32_t len)
     if (getUsbPort()->queue() != 0)
     {
         // This should always succeed.
-        if (osMessageQueuePut(getUsbPort()->queue(), &buf, 0, 0) == osOK)
+        if (osMessagePut(getUsbPort()->queue(), (uint32_t) buf, 0) == osOK)
         {
             return;
         }
@@ -66,7 +66,7 @@ void UsbPort::add_char(uint8_t c)
             break;
         case FEND:
             frame_->source(frame_->source() & 7);
-            osMessageQueuePut(ioEventQueueHandle, &frame_, 0,
+            osMessagePut(ioEventQueueHandle, reinterpret_cast<uint32_t>(frame_),
                 osWaitForever);
             frame_ = hdlc::acquire_wait();
             state_ = WAIT_FBEGIN;
@@ -110,11 +110,12 @@ void UsbPort::run()
     if (frame_ == nullptr) frame_ = hdlc::acquire_wait();
 
     while (true) {
-    	UsbCdcRxBuffer_t* usbCdcRxBuffer;
-        auto status = osMessageQueueGet(queue(), &usbCdcRxBuffer, 0, osWaitForever);
-        if (status != osOK) {
+        osEvent evt = osMessageGet(queue(), osWaitForever);
+        if (evt.status != osEventMessage) {
             continue;
         }
+
+        auto usbCdcRxBuffer = (UsbCdcRxBuffer_t*) evt.value.p;
 
         // Handle ping-pong buffers.
         if (usbCdcRxBuffer == usbCdcRxBuffer_1) {
@@ -134,46 +135,24 @@ void UsbPort::run()
     }
 }
 
-typedef StaticTask_t osStaticThreadDef_t;
-typedef StaticQueue_t osStaticMessageQDef_t;
+uint32_t cdcTaskBuffer[ 128 ] __attribute__((section(".safedata")));
+osStaticThreadDef_t cdcTaskControlBlock;
 
-static uint32_t cdcTaskBuffer[ 128 ];
-static osStaticThreadDef_t cdcTaskControlBlock;
-
-static const osThreadAttr_t cdcTask_attributes = {
-  .name = "cdcTask",
-  .cb_mem = &cdcTaskControlBlock,
-  .cb_size = sizeof(cdcTaskControlBlock),
-  .stack_mem = &cdcTaskBuffer[0],
-  .stack_size = sizeof(cdcTaskBuffer),
-  .priority = (osPriority_t) osPriorityNormal,
-};
-
-void* cdcQueueBuffer[ 4 * sizeof( void* ) ];
+uint8_t cdcQueueBuffer[ 4 * sizeof( void* ) ];
 osStaticMessageQDef_t cdcQueueControlBlock;
-const osMessageQueueAttr_t cdcQueue_attributes = {
-  .name = "cdcQueue",
-  .cb_mem = &cdcQueueControlBlock,
-  .cb_size = sizeof(cdcQueueControlBlock),
-  .mq_mem = &cdcQueueBuffer,
-  .mq_size = sizeof(cdcQueueBuffer)
-};
-
-const osMutexAttr_t usbMutex_attribures = {
-  .name = "usbMutex",
-  .cb_mem = nullptr,
-  .cb_size = 0UL,
-};
 
 void UsbPort::init()
 {
     if (cdcTaskHandle_) return;
 
-    queue_ = osMessageQueueNew(4, sizeof(void*), &cdcQueue_attributes);
+    osMessageQStaticDef(cdcQueue, 4, void*, cdcQueueBuffer, &cdcQueueControlBlock);
+    queue_ = osMessageCreate(osMessageQ(cdcQueue), 0);
 
-    mutex_ = osMutexNew(&usbMutex_attribures);
+    osMutexDef(usbMutex);
+    mutex_ = osMutexCreate(osMutex(usbMutex));
 
-    cdcTaskHandle_ = osThreadNew(startCDCTask, this, &cdcTask_attributes);
+    osThreadStaticDef(cdcTask, startCDCTask, osPriorityNormal, 0, 128, cdcTaskBuffer, &cdcTaskControlBlock);
+    cdcTaskHandle_ = osThreadCreate(osThread(cdcTask), this);
 }
 
 bool UsbPort::open()

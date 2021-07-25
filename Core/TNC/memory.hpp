@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "FreeRTOS.h"
+#include "cmsis_os.h"
 
 #include <boost/intrusive/list.hpp>
 
@@ -50,20 +50,20 @@ struct Pool {
     }
 
     chunk_type* allocate() {
-        auto x = portSET_INTERRUPT_MASK_FROM_ISR();
+        auto x = taskENTER_CRITICAL_FROM_ISR();
         chunk_type* result = 0;
         if (not free_list.empty()) {
             result = &free_list.front();
             free_list.pop_front();
         }
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(x);
+        taskEXIT_CRITICAL_FROM_ISR(x);
         return result;
     }
 
     void deallocate(chunk_type* item) {
-        auto x = portSET_INTERRUPT_MASK_FROM_ISR();
+        auto x = taskENTER_CRITICAL_FROM_ISR();
         free_list.push_back(*item);
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(x);
+        taskEXIT_CRITICAL_FROM_ISR(x);
     }
 };
 

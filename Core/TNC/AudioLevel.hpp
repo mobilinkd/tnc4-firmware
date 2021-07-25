@@ -4,14 +4,14 @@
 #pragma once
 
 #include "arm_math.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 #include "stm32l4xx_hal.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern osMessageQueueId_t audioInputQueueHandle;
+extern osMessageQId audioInputQueueHandle;
 
 #ifdef __cplusplus
 }

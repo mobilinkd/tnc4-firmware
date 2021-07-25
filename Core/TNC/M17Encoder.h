@@ -11,7 +11,7 @@
 #include "M17Randomizer.h"
 #include "PolynomialInterleaver.h"
 
-#include <cmsis_os2.h>
+#include <cmsis_os.h>
 
 #include <array>
 #include <cstdint>
@@ -68,7 +68,7 @@ struct M17Encoder : public Encoder
     enum class State {INACTIVE, IDLE, ACTIVE};
     enum class FrameType {BASIC_PACKET, FULL_PACKET, VOICE_STREAM};
 
-    M17Encoder(osMessageQueueId_t input);
+    M17Encoder(osMessageQId input);
     ~M17Encoder();
     void run() override;
     void update_settings() override;
@@ -84,7 +84,7 @@ private:
     using payload_t = std::array<uint8_t, 34>;      // Bytes in the payload of a data frame.
     using frame_t = std::array<uint8_t, 46>;        // M17 frame (without sync word).
 
-    static void encoderTask(void*);
+    static void encoderTask(void const*);
 
     void process_packet(tnc::hdlc::IoFrame*, FrameType type);
     void process_stream(tnc::hdlc::IoFrame*, FrameType type);
@@ -185,8 +185,8 @@ private:
         return result;
     }
 
-    osMessageQueueId_t input_queue;
-    osThreadId_t encoderTaskHandle;
+    osMessageQId input_queue;
+    osThreadId encoderTaskHandle;
     State state = State::INACTIVE;
 
     frame_t m17_frame;

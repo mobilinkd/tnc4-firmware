@@ -31,19 +31,19 @@ struct Pool {
 
     bool allocate(chunk_list& list) {
         bool result = false;
-        auto x = portSET_INTERRUPT_MASK_FROM_ISR();
+        auto x = taskENTER_CRITICAL_FROM_ISR();
         if (!free_list.empty()) {
             list.splice(list.end(), free_list, free_list.begin());
             result = true;
         }
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(x);
+        taskEXIT_CRITICAL_FROM_ISR(x);
         return result;
     }
 
     void deallocate(chunk_list& list) {
-        auto x = portSET_INTERRUPT_MASK_FROM_ISR();
+        auto x = taskENTER_CRITICAL_FROM_ISR();
         free_list.splice(free_list.end(), list);
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(x);
+        taskEXIT_CRITICAL_FROM_ISR(x);
     }
 };
 
@@ -79,6 +79,23 @@ struct SegmentedBuffer {
     }
 
     uint16_t size() const {return size_;}
+
+    bool resize(uint16_t size)
+    {
+        if (size <= size_)
+        {
+            size_ = size;
+        }
+        else
+        {
+            for (;size_ != size;)
+            {
+                if (!push_back(value_type()))
+                    return false;
+            }
+        }
+        return true;
+    }
 
     bool push_back(value_type value) {
         uint16_t offset = size_ & 0xFF;

@@ -16,14 +16,14 @@
 #include "ModulatorTask.hpp"
 
 #include "arm_math.h"
-#include "cmsis_os2.h"
 #include "stm32l4xx_hal.h"
 
 #include <algorithm>
-#include <numeric>
-#include <cstring>
-#include <cstdint>
 #include <atomic>
+#include <cstdint>
+#include <cstring>
+#include <numeric>
+#include <type_traits>
 
 extern osMessageQId ioEventQueueHandle;
 extern IWDG_HandleTypeDef hiwdg;
@@ -37,7 +37,7 @@ extern "C" void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef*) {
     auto block = adcPool.allocate();
     if (!block) return;
     memmove(block->buffer, adc_buffer, dma_transfer_size);
-    auto status = osMessageQueuePut(adcInputQueueHandle, &block, 0, 0);
+    auto status = osMessagePut(adcInputQueueHandle, (uint32_t) block, 0);
     if (status != osOK) adcPool.deallocate(block);
 }
 
@@ -48,7 +48,7 @@ extern "C" void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef*) {
     auto block = adcPool.allocate();
     if (!block) return;
     memmove(block->buffer, adc_buffer + half_buffer_size, dma_transfer_size);
-    auto status = osMessageQueuePut(adcInputQueueHandle, &block, 0, 0);
+    auto status = osMessagePut(adcInputQueueHandle, (uint32_t) block, 0);
     if (status != osOK) adcPool.deallocate(block);
 }
 
@@ -57,11 +57,6 @@ extern "C" void HAL_ADC_ErrorCallback(ADC_HandleTypeDef* /* hadc */) {
 
     // __HAL_ADC_CLEAR_FLAG(hadc, (ADC_FLAG_EOC | ADC_FLAG_EOS | ADC_FLAG_OVR));
     // HAL_DMA_Start(hadc->DMA_Handle, (uint32_t)&hadc->Instance->DR, (uint32_t)adc_buffer, ADC_BUFFER_SIZE * 2);
-}
-
-extern "C" void sendAudioMessage(int msg, uint32_t timeout)
-{
-	osMessageQueuePut(audioInputQueueHandle, &msg, 0, timeout);
 }
 
 extern "C" void startAudioInputTask(void const*) {
@@ -74,8 +69,9 @@ extern "C" void startAudioInputTask(void const*) {
     uint8_t adcState = mobilinkd::tnc::audio::IDLE;
 
     while (true) {
-        auto status = osMessageQueueGet(audioInputQueueHandle, &adcState, 0, osWaitForever);
-        if (status != osOK) continue;
+        osEvent event = osMessageGet(audioInputQueueHandle, osWaitForever);
+        if (event.status != osEventMessage) continue;
+        adcState = event.value.v;
 
         switch (adcState) {
         case STOPPED:
@@ -140,7 +136,7 @@ uint32_t adc_buffer[ADC_BUFFER_SIZE];               // Two samples per element.
 volatile uint32_t adc_block_size = ADC_BUFFER_SIZE;          // Based on demodulator.
 volatile uint32_t dma_transfer_size = adc_block_size * 2;    // Transfer size in bytes.
 volatile uint32_t half_buffer_size = adc_block_size / 2;     // Transfer size in words / 2.
-adc_pool_type adcPool __attribute__((section(".bss2")));;
+adc_pool_type adcPool;
 
 void set_adc_block_size(uint32_t block_size)
 {
@@ -153,22 +149,44 @@ q15_t normalized[ADC_BUFFER_SIZE];
 
 IDemodulator* getDemodulator()
 {
-    static Afsk1200Demodulator afsk1200;
-    static Fsk9600Demodulator fsk9600;
-    static M17Demodulator m17;
+    constexpr auto mem_size = std::max({
+        sizeof(Afsk1200Demodulator),
+        sizeof(Fsk9600Demodulator),
+        sizeof(M17Demodulator),
+    });
 
-    switch (kiss::settings().modem_type)
+    using storage_t = std::aligned_storage<mem_size, 4>::type;
+
+    static storage_t mem;
+    static IDemodulator* demod = nullptr;
+
+    static uint8_t modem_type = 0;
+    if (modem_type != kiss::settings().modem_type)
     {
-    case kiss::Hardware::ModemType::AFSK1200:
-        return &afsk1200;
-    case kiss::Hardware::ModemType::FSK9600:
-        return &fsk9600;
-    case kiss::Hardware::ModemType::M17:
-        return &m17;
-    default:
-        ERROR("Invalid demodulator");
-        CxxErrorHandler();
+        if (demod)
+        {
+            demod->~IDemodulator();
+        }
+
+        switch (kiss::settings().modem_type)
+        {
+        case kiss::Hardware::ModemType::AFSK1200:
+            demod = new (&mem) Afsk1200Demodulator();
+            break;
+        case kiss::Hardware::ModemType::FSK9600:
+            demod = new (&mem) Fsk9600Demodulator();
+            break;
+        case kiss::Hardware::ModemType::M17:
+            demod = new (&mem) M17Demodulator();
+            break;
+        default:
+            ERROR("Invalid demodulator");
+            CxxErrorHandler();
+        }
+        modem_type = kiss::settings().modem_type;
     }
+
+    return demod;
 }
 
 void demodulatorTask() {
@@ -181,21 +199,17 @@ void demodulatorTask() {
     demodulator->start();
 
     while (true) {
-    	adc_pool_type::chunk_type* block;
+        osEvent peek = osMessagePeek(audioInputQueueHandle, 0);
+        if (peek.status == osEventMessage) break;
 
-        if (osMessageQueueGetCount(audioInputQueueHandle))
-        {
-        	INFO("Stopping demodulator");
-        	break;
-        }
-
-        auto status = osMessageQueueGet(adcInputQueueHandle, &block, 0, osWaitForever);
-        if (status != osOK) {
+        osEvent evt = osMessageGet(adcInputQueueHandle, osWaitForever);
+        if (evt.status != osEventMessage) {
             continue;
         }
 
         HAL_IWDG_Refresh(&hiwdg);
 
+        auto block = (adc_pool_type::chunk_type*) evt.value.p;
         auto samples = (int16_t*) block->buffer;
 
         arm_offset_q15(samples, 0 - virtual_ground, normalized, demodulator->size());
@@ -205,7 +219,7 @@ void demodulatorTask() {
         if (frame)
         {
             frame->source(frame->source() | hdlc::IoFrame::RF_DATA);
-            if (osMessageQueuePut(ioEventQueueHandle, &frame, 0, 1) != osOK)
+            if (osMessagePut(ioEventQueueHandle, (uint32_t) frame, 1) != osOK)
             {
                 hdlc::release(frame);
             }
@@ -239,7 +253,8 @@ void streamLevels(uint8_t cmd) {
     demodulator->start();
 
     while (true) {
-        if (osMessageQueueGetCount(audioInputQueueHandle)) break;
+        osEvent peek = osMessagePeek(audioInputQueueHandle, 0);
+        if (peek.status == osEventMessage) break;
 
         uint16_t count = 0;
         uint32_t accum = 0;
@@ -247,12 +262,12 @@ void streamLevels(uint8_t cmd) {
         uint16_t vmax = std::numeric_limits<uint16_t>::min();
 
         while (count < demodulator->size() * 30) {
-        	adc_pool_type::chunk_type* block;
-            auto status = osMessageQueueGet(adcInputQueueHandle, &block, 0, osWaitForever);
-            if (status != osOK) continue;
+            osEvent evt = osMessageGet(adcInputQueueHandle, osWaitForever);
+            if (evt.status != osEventMessage) continue;
 
             count += demodulator->size();
 
+            auto block = (adc_pool_type::chunk_type*) evt.value.p;
             auto start =  (uint16_t*) block->buffer;
             auto end = start + demodulator->size();
 
@@ -304,10 +319,10 @@ levels_type readLevels(uint32_t)
 
     for (uint32_t count = 0; count != BLOCKS; ++count)
     {
-    	adc_pool_type::chunk_type* block;
-        auto status = osMessageQueueGet(adcInputQueueHandle, &block, 0, osWaitForever);
-        if (status != osOK) continue;
+        osEvent evt = osMessageGet(adcInputQueueHandle, osWaitForever);
+        if (evt.status != osEventMessage) continue;
 
+        auto block = (adc_pool_type::chunk_type*) evt.value.p;
         auto start =  (uint16_t*) block->buffer;
         auto end = start + demodulator->size();
 
@@ -386,12 +401,13 @@ void pollInputTwist()
 
       uint32_t count = 0;
       while (count < TWIST_SAMPLE_SIZE) {
-    	  adc_pool_type::chunk_type* block;
-          auto status = osMessageQueueGet(adcInputQueueHandle, &block, 0, osWaitForever);
-          if (status != osOK) continue;
+
+          osEvent evt = osMessageGet(adcInputQueueHandle, osWaitForever);
+          if (evt.status != osEventMessage) continue;
 
           count += ADC_BUFFER_SIZE;
 
+          auto block = (adc_pool_type::chunk_type*) evt.value.p;
           uint16_t* data =  (uint16_t*) block->buffer;
           gf1200(data, ADC_BUFFER_SIZE);
           gf2200(data, ADC_BUFFER_SIZE);

@@ -174,6 +174,7 @@ public:
         index_ = 0;
         sample_index_ = 0;
         estimates_.fill(0);
+        clock_ = 1.0;
     }
 
     /**

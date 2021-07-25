@@ -24,7 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stm32l4xx_hal.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 #include "main.h"
 #include "LEDIndicator.h"
 
@@ -60,16 +60,6 @@ void idleInterruptCallback(UART_HandleTypeDef* huart);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-void sendMessage(int cmd)
-{
-	osMessageQueuePut(ioEventQueueHandle, &cmd, 0, 0);
-}
-
-void sendMessage2(int cmd, uint32_t timeout)
-{
-	osMessageQueuePut(ioEventQueueHandle, &cmd, 0, timeout);
-}
 
 void dit()
 {
@@ -138,7 +128,7 @@ extern TIM_HandleTypeDef htim8;
 extern DMA_HandleTypeDef hdma_usart3_rx;
 extern DMA_HandleTypeDef hdma_usart3_tx;
 extern UART_HandleTypeDef huart3;
-extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim15;
 
 /* USER CODE BEGIN EV */
 
@@ -254,10 +244,10 @@ void EXTI0_IRQHandler(void)
     if (state2 == GPIO_PIN_SET)
     {
       int state = (state1 == GPIO_PIN_SET ? CMD_BT_DEEP_SLEEP : CMD_BT_ACCESS);
-      sendMessage(state);
+      osMessagePut(ioEventQueueHandle, state, 0);
     } else {
       int state = (state1 == GPIO_PIN_SET ? CMD_BT_TX : CMD_BT_IDLE);
-      sendMessage(state);
+      osMessagePut(ioEventQueueHandle, state, 0);
     }
 
   /* USER CODE END EXTI0_IRQn 0 */
@@ -275,9 +265,9 @@ void EXTI1_IRQHandler(void)
   /* USER CODE BEGIN EXTI1_IRQn 0 */
     if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
     {
-    	sendMessage(CMD_BT_CONNECT);
+    	osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
     } else {
-    	sendMessage(CMD_BT_DISCONNECT);
+    	osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
     }
 
   /* USER CODE END EXTI1_IRQn 0 */
@@ -295,9 +285,9 @@ void EXTI2_IRQHandler(void)
   /* USER CODE BEGIN EXTI2_IRQn 0 */
     if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
     {
-    	sendMessage(CMD_OVP_ERROR);
+    	osMessagePut(ioEventQueueHandle, CMD_OVP_ERROR, 0);
     } else {
-    	sendMessage(CMD_NO_OVP_ERROR);
+    	osMessagePut(ioEventQueueHandle, CMD_NO_OVP_ERROR, 0);
     }
 
   /* USER CODE END EXTI2_IRQn 0 */
@@ -315,9 +305,9 @@ void EXTI3_IRQHandler(void)
   /* USER CODE BEGIN EXTI3_IRQn 0 */
     if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
     {
-    	sendMessage(CMD_BOOT_BUTTON_UP);
+    	osMessagePut(ioEventQueueHandle, CMD_BOOT_BUTTON_UP, 0);
     } else {
-    	sendMessage(CMD_BOOT_BUTTON_DOWN);
+    	osMessagePut(ioEventQueueHandle, CMD_BOOT_BUTTON_DOWN, 0);
     }
 
   /* USER CODE END EXTI3_IRQn 0 */
@@ -437,9 +427,9 @@ void EXTI9_5_IRQHandler(void)
     if (new_state != sw_state)
     {
     	if (new_state == GPIO_PIN_RESET) {
-    		sendMessage(CMD_POWER_BUTTON_UP);
+    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_UP, 0);
     	} else {
-    		sendMessage(CMD_POWER_BUTTON_DOWN);
+    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_DOWN, 0);
     	}
     }
 
@@ -452,17 +442,17 @@ void EXTI9_5_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles TIM2 global interrupt.
+  * @brief This function handles TIM1 break interrupt and TIM15 global interrupt.
   */
-void TIM2_IRQHandler(void)
+void TIM1_BRK_TIM15_IRQHandler(void)
 {
-  /* USER CODE BEGIN TIM2_IRQn 0 */
+  /* USER CODE BEGIN TIM1_BRK_TIM15_IRQn 0 */
 
-  /* USER CODE END TIM2_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim2);
-  /* USER CODE BEGIN TIM2_IRQn 1 */
+  /* USER CODE END TIM1_BRK_TIM15_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim15);
+  /* USER CODE BEGIN TIM1_BRK_TIM15_IRQn 1 */
 
-  /* USER CODE END TIM2_IRQn 1 */
+  /* USER CODE END TIM1_BRK_TIM15_IRQn 1 */
 }
 
 /**
@@ -491,9 +481,9 @@ void EXTI15_10_IRQHandler(void)
   /* USER CODE BEGIN EXTI15_10_IRQn 0 */
 	  if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
 	  {
-		  sendMessage(CMD_USB_CONNECTED);
+		  osMessagePut(ioEventQueueHandle, CMD_USB_CONNECTED, 0);
 	  } else {
-		  sendMessage(CMD_USB_DISCONNECTED);
+		  osMessagePut(ioEventQueueHandle, CMD_USB_DISCONNECTED, 0);
 	  }
 
   /* USER CODE END EXTI15_10_IRQn 0 */

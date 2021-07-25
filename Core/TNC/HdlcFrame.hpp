@@ -8,8 +8,7 @@
 extern CRC_HandleTypeDef hcrc;
 #endif
 
-#include "cmsis_os2.h"
-#include "FreeRTOS.h"
+#include "cmsis_os.h"
 
 #include <Log.h>
 #include "SegmentedBuffer.hpp"
@@ -100,6 +99,7 @@ public:
     }
 
     uint16_t size() const {return data_.size();}
+    bool resize(uint16_t size) {return data_.resize(size);}
 
     uint16_t crc() const {return crc_;}
     uint16_t fcs() const {return fcs_;}
@@ -163,20 +163,20 @@ public:
 
     frame_type* acquire() {
         frame_type* result = nullptr;
-        auto x = portSET_INTERRUPT_MASK_FROM_ISR();
+        auto x = taskENTER_CRITICAL_FROM_ISR();
         if (!free_list_.empty()) {
             result = &free_list_.front();
             free_list_.pop_front();
         }
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(x);
+        taskEXIT_CRITICAL_FROM_ISR(x);
         return result;
     }
 
     void release(frame_type* frame) {
         frame->clear();
-        auto x = portSET_INTERRUPT_MASK_FROM_ISR();
+        auto x = taskENTER_CRITICAL_FROM_ISR();
         free_list_.push_back(*frame);
-        portCLEAR_INTERRUPT_MASK_FROM_ISR(x);
+        taskEXIT_CRITICAL_FROM_ISR(x);
     }
 };
 

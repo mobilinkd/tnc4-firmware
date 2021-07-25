@@ -7,14 +7,14 @@
 #include <stm32l4xx_hal.h>
 #include <stm32l4xx_hal_tim.h>
 #include <stm32l4xx_hal_tim_ex.h>
-#include <cmsis_os2.h>
+#include <cmsis_os.h>
 
 #include <functional>
 #include <atomic>
 
 #include <stdint.h>
 
-extern TIM_HandleTypeDef htim8;
+extern TIM_HandleTypeDef LED_PWM_TIMER_HANDLE;
 
 namespace mobilinkd {
 namespace tnc {
@@ -421,7 +421,7 @@ struct Flash
             if (counter == 0)
             {
                 state = STATE::OFF;
-                HAL_TIM_PWM_Stop(&htim8, channel);
+                HAL_TIM_PWM_Stop(&LED_PWM_TIMER_HANDLE, channel);
             }
             else
             {
@@ -451,7 +451,7 @@ struct Flash
         auto expected = STATE::OFF;
         if (gr_state.compare_exchange_strong(expected, STATE::RAMP_UP))
         {
-            HAL_TIM_PWM_Start(&htim8, GREEN_CHANNEL);
+            HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, GREEN_CHANNEL);
         }
         else
         {
@@ -473,7 +473,7 @@ struct Flash
         if (rd_state.compare_exchange_strong(expected, STATE::RAMP_UP))
         {
             // PWM Channel must match
-            HAL_TIM_PWM_Start(&htim8, RED_CHANNEL);
+            HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, RED_CHANNEL);
         }
         else
         {
@@ -492,19 +492,19 @@ struct Flash
     void disconnect()
     {
         blue_func = noConnection;
-        HAL_TIM_PWM_Start(&htim8, BLUE_CHANNEL);
+        HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, BLUE_CHANNEL);
     }
 
     void usb()
     {
         blue_func = usbConnection;
-        HAL_TIM_PWM_Start(&htim8, BLUE_CHANNEL);
+        HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, BLUE_CHANNEL);
     }
 
     void bt()
     {
         blue_func = btConnection;
-        HAL_TIM_PWM_Start(&htim8, BLUE_CHANNEL);
+        HAL_TIM_PWM_Start(&LED_PWM_TIMER_HANDLE, BLUE_CHANNEL);
     }
 };
 
@@ -518,25 +518,25 @@ Flash& flash()
 }
 } // mobilinkd::tnc
 
-void HTIM8_PeriodElapsedCallback()
+void LED_TIMER_PeriodElapsedCallback()
 {
     using mobilinkd::tnc::flash;
 
     // CCR registers must match the TIM_CHANNEL used for each LED in Flash.
 #ifndef NUCLEOTNC
-    htim8.Instance->CCR1 = flash().blue();
-    htim8.Instance->CCR2 = flash().green();
-    htim8.Instance->CCR3 = flash().red();
+    LED_PWM_TIMER_HANDLE.Instance->CCR1 = flash().blue();
+    LED_PWM_TIMER_HANDLE.Instance->CCR2 = flash().green();
+    LED_PWM_TIMER_HANDLE.Instance->CCR3 = flash().red();
 #else
-    htim1.Instance->CCR1 = flash().red();
-    htim1.Instance->CCR2 = flash().green();
-    htim1.Instance->CCR3 = flash().blue(); // YELLOW
+    LED_PWM_TIMER_HANDLE.Instance->CCR1 = flash().red();
+    LED_PWM_TIMER_HANDLE.Instance->CCR2 = flash().green();
+    LED_PWM_TIMER_HANDLE.Instance->CCR3 = flash().blue(); // YELLOW
 #endif
 }
 
 void indicate_turning_on(void)
 {
-    HAL_TIM_Base_Start_IT(&htim8);
+    HAL_TIM_Base_Start_IT(&LED_PWM_TIMER_HANDLE);
     tx_on();
     rx_on();
 }

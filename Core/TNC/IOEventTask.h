@@ -3,15 +3,15 @@
 
 #pragma once
 
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void startIOEventTask(void* argument);
+void startIOEventTask(void const* argument);
 
-extern osMessageQueueId_t ioEventQueueHandle;
+extern osMessageQId ioEventQueueHandle;
 #ifndef NUCLEOTNC
 extern volatile int cdc_connected;
 #endif

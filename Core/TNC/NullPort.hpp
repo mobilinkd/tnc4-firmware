@@ -28,7 +28,7 @@ struct NullPort : PortInterface
     virtual void close() {
         open_ = false;
     }
-    virtual osMessageQueueId_t queue() const { return 0; }
+    virtual osMessageQId queue() const { return 0; }
     virtual bool write(const uint8_t*, uint32_t, uint8_t, uint32_t)
     {
         return true;

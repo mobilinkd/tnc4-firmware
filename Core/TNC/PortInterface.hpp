@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 
 #include "HdlcFrame.hpp"
 #include "PortInterface.h"
@@ -24,7 +24,7 @@ struct PortInterface {
     virtual bool open() = 0;
     virtual bool isOpen() const = 0;
     virtual void close() = 0;
-    virtual osMessageQueueId_t queue() const = 0;
+    virtual osMessageQId queue() const = 0;
     virtual bool write(const uint8_t* data, uint32_t size, uint8_t type,
         uint32_t timeout) = 0;
     virtual bool write(const uint8_t* data, uint32_t size, uint32_t timeout) = 0;

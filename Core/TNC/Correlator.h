@@ -126,7 +126,7 @@ struct SyncWord
 
 		value_type peak_value = 0;
 
-		if (value != 0)
+		if (std::abs(value) > 0.0)
 		{
 			if (!triggered_)
 			{

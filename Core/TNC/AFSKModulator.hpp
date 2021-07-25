@@ -10,7 +10,7 @@
 #include "Modulator.hpp"
 
 #include "stm32l4xx_hal.h"
-#include "cmsis_os2.h"
+#include "cmsis_os.h"
 #include "main.h"
 
 #include <algorithm>
@@ -128,10 +128,12 @@ struct AFSKModulator : Modulator
             start_conversion();
             break;
         case 1:
-            osMessageQueuePut(dacOutputQueueHandle_, &bit, 0, osWaitForever);
+            osMessagePut(dacOutputQueueHandle_, bit, osWaitForever);
             break;
         }
     }
+
+    void tone(uint16_t freq) override {}
 
     void fill(uint16_t* buffer, bool bit)
     {
@@ -217,8 +219,7 @@ struct AFSKModulator : Modulator
 #endif
 
         // Drain the queue.
-        uint32_t junk;
-        while (osMessageQueueGet(dacOutputQueueHandle_, &junk, 0, 0) == osOK);
+        while (osMessageGet(dacOutputQueueHandle_, 0).status == osEventMessage);
    }
 
    float bits_per_ms() const override

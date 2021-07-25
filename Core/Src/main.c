@@ -20,7 +20,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -36,10 +35,6 @@
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
-typedef StaticTask_t osStaticThreadDef_t;
-typedef StaticQueue_t osStaticMessageQDef_t;
-typedef StaticTimer_t osStaticTimerDef_t;
-typedef StaticSemaphore_t osStaticMutexDef_t;
 /* USER CODE BEGIN PTD */
 
 /* USER CODE END PTD */
@@ -86,181 +81,49 @@ UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
+osThreadId defaultTaskHandle;
 uint32_t defaultTaskBuffer[ 256 ];
 osStaticThreadDef_t defaultTaskControlBlock;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .cb_mem = &defaultTaskControlBlock,
-  .cb_size = sizeof(defaultTaskControlBlock),
-  .stack_mem = &defaultTaskBuffer[0],
-  .stack_size = sizeof(defaultTaskBuffer),
-  .priority = (osPriority_t) osPriorityNormal,
-};
-/* Definitions for ioEventTask */
-osThreadId_t ioEventTaskHandle;
+osThreadId ioEventTaskHandle;
 uint32_t ioEventTaskBuffer[ 384 ];
 osStaticThreadDef_t ioEventTaskControlBlock;
-const osThreadAttr_t ioEventTask_attributes = {
-  .name = "ioEventTask",
-  .cb_mem = &ioEventTaskControlBlock,
-  .cb_size = sizeof(ioEventTaskControlBlock),
-  .stack_mem = &ioEventTaskBuffer[0],
-  .stack_size = sizeof(ioEventTaskBuffer),
-  .priority = (osPriority_t) osPriorityLow,
-};
-/* Definitions for audioInputTask */
-osThreadId_t audioInputTaskHandle;
-uint32_t audioInputTaskBuffer[ 640 ];
+osThreadId audioInputTaskHandle;
+uint32_t audioInputTaskBuffer[ 512 ];
 osStaticThreadDef_t audioInputTaskControlBlock;
-const osThreadAttr_t audioInputTask_attributes = {
-  .name = "audioInputTask",
-  .cb_mem = &audioInputTaskControlBlock,
-  .cb_size = sizeof(audioInputTaskControlBlock),
-  .stack_mem = &audioInputTaskBuffer[0],
-  .stack_size = sizeof(audioInputTaskBuffer),
-  .priority = (osPriority_t) osPriorityAboveNormal,
-};
-/* Definitions for modulatorTask */
-osThreadId_t modulatorTaskHandle;
+osThreadId modulatorTaskHandle;
 uint32_t modulatorTaskBuffer[ 384 ];
 osStaticThreadDef_t modulatorTaskControlBlock;
-const osThreadAttr_t modulatorTask_attributes = {
-  .name = "modulatorTask",
-  .cb_mem = &modulatorTaskControlBlock,
-  .cb_size = sizeof(modulatorTaskControlBlock),
-  .stack_mem = &modulatorTaskBuffer[0],
-  .stack_size = sizeof(modulatorTaskBuffer),
-  .priority = (osPriority_t) osPriorityAboveNormal,
-};
-/* Definitions for testToneTask */
-osThreadId_t testToneTaskHandle;
-uint32_t testToneTaskBuffer[ 256 ];
-osStaticThreadDef_t testToneTaskControlBlock;
-const osThreadAttr_t testToneTask_attributes = {
-  .name = "testToneTask",
-  .cb_mem = &testToneTaskControlBlock,
-  .cb_size = sizeof(testToneTaskControlBlock),
-  .stack_mem = &testToneTaskBuffer[0],
-  .stack_size = sizeof(testToneTaskBuffer),
-  .priority = (osPriority_t) osPriorityLow,
-};
-/* Definitions for ioEventQueue */
-osMessageQueueId_t ioEventQueueHandle;
+osMessageQId ioEventQueueHandle;
 uint8_t ioEventQueueBuffer[ 16 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t ioEventQueueControlBlock;
-const osMessageQueueAttr_t ioEventQueue_attributes = {
-  .name = "ioEventQueue",
-  .cb_mem = &ioEventQueueControlBlock,
-  .cb_size = sizeof(ioEventQueueControlBlock),
-  .mq_mem = &ioEventQueueBuffer,
-  .mq_size = sizeof(ioEventQueueBuffer)
-};
-/* Definitions for serialInputQueue */
-osMessageQueueId_t serialInputQueueHandle;
+osMessageQId serialInputQueueHandle;
 uint8_t serialInputQueueBuffer[ 16 * sizeof( void* ) ];
 osStaticMessageQDef_t serialInputQueueControlBlock;
-const osMessageQueueAttr_t serialInputQueue_attributes = {
-  .name = "serialInputQueue",
-  .cb_mem = &serialInputQueueControlBlock,
-  .cb_size = sizeof(serialInputQueueControlBlock),
-  .mq_mem = &serialInputQueueBuffer,
-  .mq_size = sizeof(serialInputQueueBuffer)
-};
-/* Definitions for serialOutputQueue */
-osMessageQueueId_t serialOutputQueueHandle;
+osMessageQId serialOutputQueueHandle;
 uint8_t serialOutputQueueBuffer[ 16 * sizeof( void* ) ];
 osStaticMessageQDef_t serialOutputQueueControlBlock;
-const osMessageQueueAttr_t serialOutputQueue_attributes = {
-  .name = "serialOutputQueue",
-  .cb_mem = &serialOutputQueueControlBlock,
-  .cb_size = sizeof(serialOutputQueueControlBlock),
-  .mq_mem = &serialOutputQueueBuffer,
-  .mq_size = sizeof(serialOutputQueueBuffer)
-};
-/* Definitions for audioInputQueue */
-osMessageQueueId_t audioInputQueueHandle;
+osMessageQId audioInputQueueHandle;
 uint8_t audioInputQueueBuffer[ 8 * sizeof( void* ) ];
 osStaticMessageQDef_t audioInputQueueControlBlock;
-const osMessageQueueAttr_t audioInputQueue_attributes = {
-  .name = "audioInputQueue",
-  .cb_mem = &audioInputQueueControlBlock,
-  .cb_size = sizeof(audioInputQueueControlBlock),
-  .mq_mem = &audioInputQueueBuffer,
-  .mq_size = sizeof(audioInputQueueBuffer)
-};
-/* Definitions for hdlcInputQueue */
-osMessageQueueId_t hdlcInputQueueHandle;
+osMessageQId hdlcInputQueueHandle;
 uint8_t hdlcInputQueueBuffer[ 3 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t hdlcInputQueueControlBlock;
-const osMessageQueueAttr_t hdlcInputQueue_attributes = {
-  .name = "hdlcInputQueue",
-  .cb_mem = &hdlcInputQueueControlBlock,
-  .cb_size = sizeof(hdlcInputQueueControlBlock),
-  .mq_mem = &hdlcInputQueueBuffer,
-  .mq_size = sizeof(hdlcInputQueueBuffer)
-};
-/* Definitions for hdlcOutputQueue */
-osMessageQueueId_t hdlcOutputQueueHandle;
+osMessageQId hdlcOutputQueueHandle;
 uint8_t hdlcOutputQueueBuffer[ 8 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t hdlcOutputQueueControlBlock;
-const osMessageQueueAttr_t hdlcOutputQueue_attributes = {
-  .name = "hdlcOutputQueue",
-  .cb_mem = &hdlcOutputQueueControlBlock,
-  .cb_size = sizeof(hdlcOutputQueueControlBlock),
-  .mq_mem = &hdlcOutputQueueBuffer,
-  .mq_size = sizeof(hdlcOutputQueueBuffer)
-};
-/* Definitions for dacOutputQueue */
-osMessageQueueId_t dacOutputQueueHandle;
+osMessageQId dacOutputQueueHandle;
 uint8_t dacOutputQueueBuffer[ 128 * sizeof( uint8_t ) ];
 osStaticMessageQDef_t dacOutputQueueControlBlock;
-const osMessageQueueAttr_t dacOutputQueue_attributes = {
-  .name = "dacOutputQueue",
-  .cb_mem = &dacOutputQueueControlBlock,
-  .cb_size = sizeof(dacOutputQueueControlBlock),
-  .mq_mem = &dacOutputQueueBuffer,
-  .mq_size = sizeof(dacOutputQueueBuffer)
-};
-/* Definitions for adcInputQueue */
-osMessageQueueId_t adcInputQueueHandle;
+osMessageQId adcInputQueueHandle;
 uint8_t adcInputQueueBuffer[ 3 * sizeof( void* ) ];
 osStaticMessageQDef_t adcInputQueueControlBlock;
-const osMessageQueueAttr_t adcInputQueue_attributes = {
-  .name = "adcInputQueue",
-  .cb_mem = &adcInputQueueControlBlock,
-  .cb_size = sizeof(adcInputQueueControlBlock),
-  .mq_mem = &adcInputQueueBuffer,
-  .mq_size = sizeof(adcInputQueueBuffer)
-};
-/* Definitions for m17EncoderInputQueue */
-osMessageQueueId_t m17EncoderInputQueueHandle;
+osMessageQId m17EncoderInputQueueHandle;
 uint8_t m17EncoderInputQueueBuffer[ 3 * sizeof( void* ) ];
 osStaticMessageQDef_t m17EncoderInputQueueControlBlock;
-const osMessageQueueAttr_t m17EncoderInputQueue_attributes = {
-  .name = "m17EncoderInputQueue",
-  .cb_mem = &m17EncoderInputQueueControlBlock,
-  .cb_size = sizeof(m17EncoderInputQueueControlBlock),
-  .mq_mem = &m17EncoderInputQueueBuffer,
-  .mq_size = sizeof(m17EncoderInputQueueBuffer)
-};
-/* Definitions for usbShutdownTimer */
-osTimerId_t usbShutdownTimerHandle;
+osTimerId usbShutdownTimerHandle;
 osStaticTimerDef_t usbShutdownTimerControlBlock;
-const osTimerAttr_t usbShutdownTimer_attributes = {
-  .name = "usbShutdownTimer",
-  .cb_mem = &usbShutdownTimerControlBlock,
-  .cb_size = sizeof(usbShutdownTimerControlBlock),
-};
-/* Definitions for hardwareInitMutex */
-osMutexId_t hardwareInitMutexHandle;
+osMutexId hardwareInitMutexHandle;
 osStaticMutexDef_t hardwareInitMutexControlBlock;
-const osMutexAttr_t hardwareInitMutex_attributes = {
-  .name = "hardwareInitMutex",
-  .cb_mem = &hardwareInitMutexControlBlock,
-  .cb_size = sizeof(hardwareInitMutexControlBlock),
-};
 /* USER CODE BEGIN PV */
 
 osMutexId hardwareInitMutexHandle;
@@ -268,7 +131,7 @@ osMutexId hardwareInitMutexHandle;
 int lost_power = 0;
 int reset_requested = 0;
 char serial_number_64[13] = {0};
-// Make sure it is not overwritten during resets (bss3).
+// Make sure it is not overwritten during resets (safedata).
 uint8_t mac_address[6] __attribute__((section(".safedata")));
 char error_message[80] __attribute__((section(".safedata")));
 // USB power control -- need to renegotiate USB charging in STOP mode.
@@ -286,6 +149,7 @@ int usb_wake_state __attribute__((section(".safedata")));
 
 int reset_button = 0;
 extern void* testTonePtr;
+extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE END PV */
 
@@ -308,12 +172,11 @@ static void MX_I2C1_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_RTC_Init(void);
 static void MX_ADC1_Init(void);
-void StartDefaultTask(void *argument);
-extern void startIOEventTask(void *argument);
-extern void startAudioInputTask(void *argument);
-extern void startModulatorTask(void *argument);
-extern void startAfskToneTask(void *argument);
-extern void shutdown(void *argument);
+void StartDefaultTask(void const * argument);
+extern void startIOEventTask(void const * argument);
+extern void startAudioInputTask(void const * argument);
+extern void startModulatorTask(void const * argument);
+extern void shutdown(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void stop2(void) __attribute__((noinline));
@@ -481,7 +344,7 @@ void enable_debug_gpio()
  *
  * @param argument is unused.
  */
-void shutdown(void* argument)
+void shutdown(void const* argument)
 {
     UNUSED(argument);
     stop_now = 1;
@@ -659,11 +522,10 @@ int main(void)
 
   /* USER CODE END 2 */
 
-  /* Init scheduler */
-  osKernelInitialize();
   /* Create the mutex(es) */
-  /* creation of hardwareInitMutex */
-  hardwareInitMutexHandle = osMutexNew(&hardwareInitMutex_attributes);
+  /* definition and creation of hardwareInitMutex */
+  osMutexStaticDef(hardwareInitMutex, &hardwareInitMutexControlBlock);
+  hardwareInitMutexHandle = osMutexCreate(osMutex(hardwareInitMutex));
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -676,40 +538,50 @@ int main(void)
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* Create the timer(s) */
-  /* creation of usbShutdownTimer */
-  usbShutdownTimerHandle = osTimerNew(shutdown, osTimerOnce, NULL, &usbShutdownTimer_attributes);
+  /* definition and creation of usbShutdownTimer */
+  osTimerStaticDef(usbShutdownTimer, shutdown, &usbShutdownTimerControlBlock);
+  usbShutdownTimerHandle = osTimerCreate(osTimer(usbShutdownTimer), osTimerOnce, NULL);
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
-  /* creation of ioEventQueue */
-  ioEventQueueHandle = osMessageQueueNew (16, sizeof(uint32_t), &ioEventQueue_attributes);
+  /* definition and creation of ioEventQueue */
+  osMessageQStaticDef(ioEventQueue, 16, uint32_t, ioEventQueueBuffer, &ioEventQueueControlBlock);
+  ioEventQueueHandle = osMessageCreate(osMessageQ(ioEventQueue), NULL);
 
-  /* creation of serialInputQueue */
-  serialInputQueueHandle = osMessageQueueNew (16, sizeof(void*), &serialInputQueue_attributes);
+  /* definition and creation of serialInputQueue */
+  osMessageQStaticDef(serialInputQueue, 16, void*, serialInputQueueBuffer, &serialInputQueueControlBlock);
+  serialInputQueueHandle = osMessageCreate(osMessageQ(serialInputQueue), NULL);
 
-  /* creation of serialOutputQueue */
-  serialOutputQueueHandle = osMessageQueueNew (16, sizeof(void*), &serialOutputQueue_attributes);
+  /* definition and creation of serialOutputQueue */
+  osMessageQStaticDef(serialOutputQueue, 16, void*, serialOutputQueueBuffer, &serialOutputQueueControlBlock);
+  serialOutputQueueHandle = osMessageCreate(osMessageQ(serialOutputQueue), NULL);
 
-  /* creation of audioInputQueue */
-  audioInputQueueHandle = osMessageQueueNew (8, sizeof(void*), &audioInputQueue_attributes);
+  /* definition and creation of audioInputQueue */
+  osMessageQStaticDef(audioInputQueue, 8, void*, audioInputQueueBuffer, &audioInputQueueControlBlock);
+  audioInputQueueHandle = osMessageCreate(osMessageQ(audioInputQueue), NULL);
 
-  /* creation of hdlcInputQueue */
-  hdlcInputQueueHandle = osMessageQueueNew (3, sizeof(uint32_t), &hdlcInputQueue_attributes);
+  /* definition and creation of hdlcInputQueue */
+  osMessageQStaticDef(hdlcInputQueue, 3, uint32_t, hdlcInputQueueBuffer, &hdlcInputQueueControlBlock);
+  hdlcInputQueueHandle = osMessageCreate(osMessageQ(hdlcInputQueue), NULL);
 
-  /* creation of hdlcOutputQueue */
-  hdlcOutputQueueHandle = osMessageQueueNew (8, sizeof(uint32_t), &hdlcOutputQueue_attributes);
+  /* definition and creation of hdlcOutputQueue */
+  osMessageQStaticDef(hdlcOutputQueue, 8, uint32_t, hdlcOutputQueueBuffer, &hdlcOutputQueueControlBlock);
+  hdlcOutputQueueHandle = osMessageCreate(osMessageQ(hdlcOutputQueue), NULL);
 
-  /* creation of dacOutputQueue */
-  dacOutputQueueHandle = osMessageQueueNew (128, sizeof(uint8_t), &dacOutputQueue_attributes);
+  /* definition and creation of dacOutputQueue */
+  osMessageQStaticDef(dacOutputQueue, 128, uint8_t, dacOutputQueueBuffer, &dacOutputQueueControlBlock);
+  dacOutputQueueHandle = osMessageCreate(osMessageQ(dacOutputQueue), NULL);
 
-  /* creation of adcInputQueue */
-  adcInputQueueHandle = osMessageQueueNew (3, sizeof(void*), &adcInputQueue_attributes);
+  /* definition and creation of adcInputQueue */
+  osMessageQStaticDef(adcInputQueue, 3, void*, adcInputQueueBuffer, &adcInputQueueControlBlock);
+  adcInputQueueHandle = osMessageCreate(osMessageQ(adcInputQueue), NULL);
 
-  /* creation of m17EncoderInputQueue */
-  m17EncoderInputQueueHandle = osMessageQueueNew (3, sizeof(void*), &m17EncoderInputQueue_attributes);
+  /* definition and creation of m17EncoderInputQueue */
+  osMessageQStaticDef(m17EncoderInputQueue, 3, void*, m17EncoderInputQueueBuffer, &m17EncoderInputQueueControlBlock);
+  m17EncoderInputQueueHandle = osMessageCreate(osMessageQ(m17EncoderInputQueue), NULL);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -778,29 +650,26 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* definition and creation of defaultTask */
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* creation of ioEventTask */
-  ioEventTaskHandle = osThreadNew(startIOEventTask, NULL, &ioEventTask_attributes);
+  /* definition and creation of ioEventTask */
+  osThreadStaticDef(ioEventTask, startIOEventTask, osPriorityLow, 0, 384, ioEventTaskBuffer, &ioEventTaskControlBlock);
+  ioEventTaskHandle = osThreadCreate(osThread(ioEventTask), NULL);
 
-  /* creation of audioInputTask */
-  audioInputTaskHandle = osThreadNew(startAudioInputTask, NULL, &audioInputTask_attributes);
+  /* definition and creation of audioInputTask */
+  osThreadStaticDef(audioInputTask, startAudioInputTask, osPriorityAboveNormal, 0, 512, audioInputTaskBuffer, &audioInputTaskControlBlock);
+  audioInputTaskHandle = osThreadCreate(osThread(audioInputTask), NULL);
 
-  /* creation of modulatorTask */
-  modulatorTaskHandle = osThreadNew(startModulatorTask, NULL, &modulatorTask_attributes);
-
-  /* creation of testToneTask */
-  testToneTaskHandle = osThreadNew(startAfskToneTask, (void*) testTonePtr, &testToneTask_attributes);
+  /* definition and creation of modulatorTask */
+  osThreadStaticDef(modulatorTask, startModulatorTask, osPriorityAboveNormal, 0, 384, modulatorTaskBuffer, &modulatorTaskControlBlock);
+  modulatorTaskHandle = osThreadCreate(osThread(modulatorTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  osThreadSuspend(testToneTaskHandle);
+//  osThreadSuspend(testToneTaskHandle);
   /* USER CODE END RTOS_THREADS */
-
-  /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
-  /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
   osKernelStart();
@@ -829,7 +698,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST) != HAL_OK)
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -840,17 +709,21 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI
-                              |RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI
+                              |RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_LSE
+                              |RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+  RCC_OscInitStruct.MSICalibrationValue = 0;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_9;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
   RCC_OscInitStruct.PLL.PLLM = 3;
-  RCC_OscInitStruct.PLL.PLLN = 30;
+  RCC_OscInitStruct.PLL.PLLN = 18;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -867,7 +740,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -878,15 +751,8 @@ void SystemClock_Config(void)
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
   PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
-  PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_PLLSAI1;
-  PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSE;
-  PeriphClkInit.PLLSAI1.PLLSAI1M = 3;
-  PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
-  PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV4;
-  PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK;
+  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
+  PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_HSI48;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -1491,7 +1357,7 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 119;
+  htim8.Init.Prescaler = 47;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim8.Init.Period = 9999;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -1760,26 +1626,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(SW_BOOT_GPIO_Port, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI2_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-
 }
 
 /* USER CODE BEGIN 4 */
@@ -1924,12 +1770,8 @@ void init_rtc_alarm()
 
 void SysClock48()
 {
-
-	return;
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
-
-    if (HAL_RCC_GetHCLKFreq() == 48000000) return;
 
     INFO("Setting 48MHz SysClock.");
 
@@ -1945,12 +1787,13 @@ void SysClock48()
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-    RCC_OscInitStruct.OscillatorType = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
     RCC_OscInitStruct.PLL.PLLN = 12;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -1973,15 +1816,10 @@ void SysClock48()
 
 void SysClock72()
 {
-	return;
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
-    if (HAL_RCC_GetHCLKFreq() == 72000000) return;
-
     INFO("Setting 72MHz SysClock.");
-
-    HAL_RCCEx_DisableMSIPLLMode();
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
@@ -1991,12 +1829,13 @@ void SysClock72()
       _Error_Handler(__FILE__, __LINE__);
     }
 
-    RCC_OscInitStruct.OscillatorType = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
     RCC_OscInitStruct.PLL.PLLN = 18;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -2026,8 +1865,6 @@ void SysClock80()
     RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
-    if (HAL_RCC_GetHCLKFreq() == 80000000) return;
-
     INFO("Setting 80MHz SysClock.");
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -2038,12 +1875,13 @@ void SysClock80()
       _Error_Handler(__FILE__, __LINE__);
     }
 
-    RCC_OscInitStruct.OscillatorType = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
     RCC_OscInitStruct.PLL.PLLN = 20;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -2117,13 +1955,12 @@ void _Error_Handler(char *file, int line)
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+void StartDefaultTask(void const * argument)
 {
-  /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
+  // Initialize OPAMP2 pins as GPIO.  These are on connector J1.
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
@@ -2139,13 +1976,30 @@ void StartDefaultTask(void *argument)
 
   /* Infinite loop */
   indicate_waiting_to_connect();
-  osThreadExit();
+
+  if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
+  {
+    INFO("VBUS detected\r\n");
+    MX_USB_DEVICE_Init();
+    HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
+    HAL_PCDEx_ActivateBCD(&hpcd_USB_OTG_FS);
+    HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
+  } else {
+	INFO("VBUS not detected\r\n");
+  }
+
+  /* Infinite loop */
+    for(;;)
+    {
+      osDelay(osWaitForever);
+    }
+
   /* USER CODE END 5 */
 }
 
  /**
   * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM2 interrupt took place, inside
+  * @note   This function is called  when TIM15 interrupt took place, inside
   * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
   * a global variable "uwTick" used as application time base.
   * @param  htim : TIM handle
@@ -2156,12 +2010,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM2) {
+  if (htim->Instance == TIM15) {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM8) {
-      HTIM8_PeriodElapsedCallback();
+	  LED_TIMER_PeriodElapsedCallback();
   }
   /* USER CODE END Callback 1 */
 }
