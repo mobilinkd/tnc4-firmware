@@ -237,14 +237,7 @@ void M17Demodulator::do_stream_sync()
 	if (sync_updated < 0)
 	{
 		missing_sync_count = 0;
-		if (sync_count <= 70)
-		{
-			update_values(sync_index);
-			sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
-			demodState = DemodState::FRAME;
-			INFO("s early");
-		}
-		else if (sync_count > 70)
+		if (sync_count > 70)
 		{
 			update_values(sync_index);
 			sync_word_type = M17FrameDecoder::SyncWordType::STREAM;
