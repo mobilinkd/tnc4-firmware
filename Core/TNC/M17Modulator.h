@@ -1,4 +1,4 @@
-// Copyright 2020 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2020-2021 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
@@ -10,8 +10,9 @@
 
 #include <arm_math.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cstdint>
 
 namespace mobilinkd { namespace tnc {
@@ -39,8 +40,8 @@ struct M17Modulator : Modulator
     osMessageQId dacOutputQueueHandle_{0};
     PTT* ptt_{nullptr};
     uint16_t volume_{4096};
-    volatile uint16_t delay_count = 0;      // TX Delay
-    volatile uint16_t stop_count = 0;       // Flush the RRC matched filter.
+    std::atomic<uint16_t> delay_count = 0;      // TX Delay
+    std::atomic<uint16_t> stop_count = 0;       // Flush the RRC matched filter.
     State state{State::STOPPED};
     float tmp[TRANSFER_LEN];
     bool send_tone = false;
@@ -170,7 +171,7 @@ struct M17Modulator : Modulator
         {
         case State::STARTING:
             fill_empty(buffer_.data());
-            delay_count += 1;
+            ++delay_count;
             break;
         case State::RUNNING:
             fill_empty(buffer_.data());
@@ -184,7 +185,7 @@ struct M17Modulator : Modulator
             stop_conversion();
             ptt_->off();
 #if defined(KISS_LOGGING) && defined(HAVE_LSCO)
-                HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
+            HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
             osMessagePut(audioInputQueueHandle, tnc::audio::DEMODULATOR,
               osWaitForever);
@@ -208,7 +209,7 @@ struct M17Modulator : Modulator
         {
         case State::STARTING:
             fill_empty(buffer_.data() + TRANSFER_LEN);
-            delay_count += 1;
+            ++delay_count;
             break;
         case State::RUNNING:
             fill_empty(buffer_.data() + TRANSFER_LEN);

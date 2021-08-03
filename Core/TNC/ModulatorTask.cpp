@@ -1,4 +1,4 @@
-// Copyright 2015 Mobilinkd LLC <rob@mobilinkd.com>
+// Copyright 2015-2021 Mobilinkd LLC <rob@mobilinkd.com>
 // All rights reserved.
 
 #include "ModulatorTask.hpp"
@@ -78,7 +78,7 @@ mobilinkd::Encoder& getEncoder()
     case kiss::Hardware::ModemType::M17:
         return m17Encoder;
     default:
-    	ERROR("Invalid modem type %d", int(kiss::settings().modem_type));
+        ERROR("Invalid modem type %d", int(kiss::settings().modem_type));
         CxxErrorHandler();
     }
 }

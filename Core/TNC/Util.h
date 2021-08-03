@@ -1,4 +1,4 @@
-// Copyright 2020 Mobilinkd LLC.
+// Copyright 2020-2021 Mobilinkd LLC.
 
 #pragma once
 
@@ -316,9 +316,9 @@ constexpr void to_byte_array(std::array<T, N> in, std::array<uint8_t, (N + 7) / 
 
 struct PRBS9
 {
-	static constexpr uint16_t MASK = 0x1FF;
-	static constexpr uint8_t TAP_1 = 8;		    // Bit 9
-	static constexpr uint8_t TAP_2 = 4;		    // Bit 5
+    static constexpr uint16_t MASK = 0x1FF;
+    static constexpr uint8_t TAP_1 = 8;         // Bit 9
+    static constexpr uint8_t TAP_2 = 4;         // Bit 5
     static constexpr uint8_t LOCK_COUNT = 18;   // 18 consecutive good bits.
 
     uint16_t state = 1;
@@ -326,9 +326,12 @@ struct PRBS9
     uint8_t sync_count = 0;
     uint32_t bit_count = 0;
     uint32_t err_count = 0;
+    std::array<uint8_t, 16> history;
+    size_t hist_count = 0;
+    size_t hist_pos = 0;
 
     // PRBS generator.
-    bool operator()()
+    bool generate()
     {
         bool result = ((state >> TAP_1) ^ (state >> TAP_2)) & 1;
         state = ((state << 1) | result) & MASK;
@@ -336,29 +339,39 @@ struct PRBS9
     }
 
     // PRBS validator.
-    bool operator()(bool bit)
+    bool validate(bool bit)
     {
         bool result;
+        bit_count += 1;
         if (!synced) {
             // Need to sync the PRBS with the incoming data.
             result = (bit ^ (state >> TAP_1) ^ (state >> TAP_2)) & 1;
             state = ((state << 1) | bit) & MASK;
             if (result) {
+            	err_count += 1;
                 sync_count = 0; // error
             } else {
                 if (++sync_count == LOCK_COUNT) {
                     synced = true;
-                    err_count = 0;
-                    bit_count = LOCK_COUNT;
+                    history.fill(0);
+                    hist_count = 0;
+                    hist_pos = 0;
+                    sync_count = 0;
                 }
             }
         } else {
             // PRBS is now free-running.
-            result = ((state >> TAP_1) ^ (state >> TAP_2)) & 1;
-            state = ((state << 1) | result) & MASK;
+            result = generate();
 
-            bit_count += 1;
-            err_count += (result != bit);
+            hist_count -= (history[hist_pos >> 3] & (1 << (hist_pos & 7))) != 0;
+            if (result != bit) {
+                err_count += 1;
+                hist_count += 1;
+                history[hist_pos >> 3] |= (1 << (hist_pos & 7));
+            } else {
+                history[hist_pos >> 3] &= ~(1 << (hist_pos & 7));
+            }
+            if (++hist_pos == 128) hist_pos = 0;
         }
         return result;
     }
@@ -376,6 +389,9 @@ struct PRBS9
         sync_count = 0;
         bit_count = 0;
         err_count = 0;
+        history.fill(0);
+        hist_count = 0;
+        hist_pos = 0;
     }
 };
 
