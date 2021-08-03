@@ -27,6 +27,8 @@
 #include "usbd_cdc.h"
 
 /* USER CODE BEGIN Includes */
+#include "cmsis_os.h"
+#include "Log.h"
 
 /* USER CODE END Includes */
 
@@ -36,6 +38,7 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+extern osMessageQId ioEventQueueHandle;
 
 /* USER CODE END PV */
 
@@ -257,6 +260,8 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
   /* USER CODE BEGIN 2 */
   if (hpcd->Init.low_power_enable)
   {
+	 osMessagePut(ioEventQueueHandle, CMD_USB_SUSPEND, 0);
+
     /* Set SLEEPDEEP bit and SleepOnExit of Cortex System Control Register. */
     SCB->SCR |= (uint32_t)((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
   }
@@ -283,6 +288,7 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
     /* Reset SLEEPDEEP bit of Cortex System Control Register. */
     SCB->SCR &= (uint32_t)~((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
     SystemClockConfig_Resume();
+    osMessagePut(ioEventQueueHandle, CMD_USB_RESUME, 0);
   }
   /* USER CODE END 3 */
   USBD_LL_Resume((USBD_HandleTypeDef*)hpcd->pData);
@@ -698,6 +704,7 @@ USBD_StatusTypeDef USBD_LL_SetUSBAddress(USBD_HandleTypeDef *pdev, uint8_t dev_a
 
   switch (hal_status) {
     case HAL_OK :
+      osMessagePut(ioEventQueueHandle, CMD_USB_SUSPEND, 0);
       usb_status = USBD_OK;
     break;
     case HAL_ERROR :
@@ -831,6 +838,58 @@ void HAL_PCDEx_LPM_Callback(PCD_HandleTypeDef *hpcd, PCD_LPM_MsgTypeDef msg)
     }
     break;
   }
+}
+/**
+  * @brief  Send BCD message to user layer
+  * @param  hpcd: PCD handle
+  * @param  msg: LPM message
+  * @retval None
+  */
+void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeDef msg)
+{
+    UNUSED(hpcd);
+    // USBD_HandleTypeDef usbdHandle = hUsbDeviceFS;
+
+  static int downstream_port = 0;
+
+  /* USER CODE BEGIN 7 */
+    switch(msg)
+    {
+      case PCD_BCD_CONTACT_DETECTION:
+          downstream_port = 0;
+          break;
+
+      case PCD_BCD_STD_DOWNSTREAM_PORT:
+          // Only charge after negotiation
+          TNC_DEBUG("Detected standard downstream USB port");
+          downstream_port = 1;
+          break;
+
+      case PCD_BCD_CHARGING_DOWNSTREAM_PORT:
+          TNC_DEBUG("Detected charging downstream USB port");
+          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
+          downstream_port = 1;
+          break;
+
+      case PCD_BCD_DEDICATED_CHARGING_PORT:
+          TNC_DEBUG("Detected dedicated charging port");
+          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
+          downstream_port = 0;
+          break;
+
+      case PCD_BCD_DISCOVERY_COMPLETED:
+          if (downstream_port) {
+              osMessagePut(ioEventQueueHandle, CMD_USB_DISCOVERY_COMPLETE, 0);
+          }
+          break;
+
+      case PCD_BCD_ERROR:
+          osMessagePut(ioEventQueueHandle, CMD_USB_DISCOVERY_ERROR, 0);
+          break;
+      default:
+      break;
+    }
+  /* USER CODE END 7 */
 }
 
 /**
