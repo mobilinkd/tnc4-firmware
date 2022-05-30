@@ -155,6 +155,8 @@ void Error_Handler(void);
 #define TNC_HAS_HSE
 #define TNC_HAS_MCO
 #define TNC_HAS_BT
+#define TNC_HAS_BAT
+#define TNC_HAS_USB
 
 #define CMD_USB_CDC_CONNECT  1
 #define CMD_USB_CDC_DISCONNECT 2
