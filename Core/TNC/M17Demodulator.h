@@ -1,4 +1,4 @@
-// Copyright 2020-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2020-2022 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
@@ -44,22 +44,28 @@ struct M17Demodulator : IDemodulator
     static constexpr float sample_rate = SAMPLE_RATE;
     static constexpr float symbol_rate = SYMBOL_RATE;
 
-    static constexpr uint8_t MAX_MISSING_SYNC = 5;
+    static constexpr int STREAM_COST_LIMIT = 80;
+    static constexpr int PACKET_COST_LIMIT = 60;
+    static constexpr uint8_t MAX_MISSING_SYNC = 10;
+    static constexpr uint8_t MIN_SYNC_COUNT = 78;
+    static constexpr uint8_t MAX_SYNC_COUNT = 87;
+    static constexpr float EOT_TRIGGER_LEVEL = 0.1;
 
-    using audio_filter_t = FirFilter<ADC_BLOCK_SIZE, m17::FILTER_TAP_NUM_15>;
+    using audio_filter_t = FirFilter<ADC_BLOCK_SIZE, m17::FILTER_TAP_NUM>;
     using sync_word_t = m17::SyncWord<m17::Correlator>;
 
-    enum class DemodState { UNLOCKED, LSF_SYNC, STREAM_SYNC, PACKET_SYNC, BERT_SYNC, FRAME };
+    enum class DemodState { UNLOCKED, LSF_SYNC, STREAM_SYNC, PACKET_SYNC, BERT_SYNC, SYNC_WAIT, FRAME };
 
     audio_filter_t demod_filter;
     std::array<float, ADC_BLOCK_SIZE> demod_buffer;
-    m17::DataCarrierDetect<float, SAMPLE_RATE, 500> dcd{2500, 4000, 1.0, 10.0};
-    m17::ClockRecovery<float, SAMPLE_RATE, SYMBOL_RATE> clock_recovery;
+    m17::DataCarrierDetect<float, SAMPLE_RATE, 400> dcd{2400, 4800, 0.8f, 10.0f};
+    m17::ClockRecovery<float, SAMPLES_PER_SYMBOL> clock_recovery;
 
     m17::Correlator correlator;
     sync_word_t preamble_sync{{+3,-3,+3,-3,+3,-3,+3,-3}, 29.f};
     sync_word_t lsf_sync{{+3,+3,+3,+3,-3,-3,+3,-3}, 31.f, -31.f};
     sync_word_t packet_sync{{3,-3,3,3,-3,-3,-3,-3}, 31.f, -31.f};
+    sync_word_t eot_sync{{+3,+3,+3,+3,+3,+3,-3,+3}, 31.f};
 
     m17::FreqDevEstimator<float> dev;
 
@@ -70,7 +76,6 @@ struct M17Demodulator : IDemodulator
     DemodState demodState = DemodState::UNLOCKED;
     M17FrameDecoder::SyncWordType sync_word_type = M17FrameDecoder::SyncWordType::LSF;
     uint8_t sample_index = 0;
-    float idev;
 
     bool dcd_ = false;
 	bool need_clock_reset_ = false;
@@ -82,7 +87,6 @@ struct M17Demodulator : IDemodulator
     uint16_t missing_sync_count = 0;
     uint8_t sync_sample_index = 0;
     int16_t adc_timing_adjust = 0;
-    float prev_clock_estimate = 1.;
 
 
     virtual ~M17Demodulator() {}
@@ -98,6 +102,7 @@ struct M17Demodulator : IDemodulator
     void do_packet_sync();
     void do_stream_sync();
     void do_bert_sync();
+    void do_sync_wait();
     void do_frame(float filtered_sample, hdlc::IoFrame*& frame_result);
 
     void stop() override

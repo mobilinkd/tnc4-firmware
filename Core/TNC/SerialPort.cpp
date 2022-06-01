@@ -36,12 +36,12 @@ std::atomic<bool> txDoneFlag{true};
 uint8_t tmpBuffer[mobilinkd::tnc::TX_BUFFER_SIZE];
 uint8_t tmpBuffer2[mobilinkd::tnc::TX_BUFFER_SIZE];
 
-constexpr const int RX_BUFFER_SIZE = 63;
+constexpr const int RX_BUFFER_SIZE = 127;
 unsigned char rxBuffer[RX_BUFFER_SIZE * 2];
 
-// 8 chunks of 64 bytes.  The first byte in each chunk is the length.
+// 3 chunks of 128 bytes.  The first byte in each chunk is the length.
 typedef mobilinkd::tnc::memory::Pool<
-    8, RX_BUFFER_SIZE + 1> serial_pool_type;
+    3, RX_BUFFER_SIZE + 1> serial_pool_type;
 serial_pool_type serialPool;
 
 #ifndef NUCLEOTNC
@@ -313,7 +313,7 @@ namespace mobilinkd { namespace tnc {
 uint32_t serialTaskBuffer[ 128 ] __attribute__((section(".safedata")));
 osStaticThreadDef_t serialTaskControlBlock __attribute__((section(".safedata")));
 
-uint8_t serialQueueBuffer[ 8 * sizeof( void* ) ] __attribute__((section(".safedata")));
+uint8_t serialQueueBuffer[ 32 * sizeof( void* ) ] __attribute__((section(".safedata")));
 osStaticMessageQDef_t serialQueueControlBlock __attribute__((section(".safedata")));
 
 osMutexDef(serialMutex);
@@ -322,7 +322,7 @@ void SerialPort::init()
 {
     if (serialTaskHandle_) return;
 
-    osMessageQStaticDef(serialQueue, 8, void*, serialQueueBuffer,
+    osMessageQStaticDef(serialQueue, 32, void*, serialQueueBuffer,
         &serialQueueControlBlock);
     queue_ = osMessageCreate(osMessageQ(serialQueue), 0);
 

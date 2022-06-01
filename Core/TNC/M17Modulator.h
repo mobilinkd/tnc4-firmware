@@ -1,4 +1,4 @@
-// Copyright 2020-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2020 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
@@ -10,9 +10,8 @@
 
 #include <arm_math.h>
 
-#include <algorithm>
 #include <array>
-#include <atomic>
+#include <algorithm>
 #include <cstdint>
 
 namespace mobilinkd { namespace tnc {
@@ -27,7 +26,9 @@ struct M17Modulator : Modulator
     // Six buffers per M17 frame, or 12 half-buffer interrupts.
     static constexpr uint8_t UPSAMPLE = 10;
     static constexpr uint32_t BLOCKSIZE = 4;
-    static constexpr uint32_t STATE_SIZE = (m17::FILTER_TAP_NUM_15 / UPSAMPLE) + BLOCKSIZE - 1;
+    static constexpr uint32_t STATE_SIZE = (m17::FILTER_TAP_NUM / UPSAMPLE) + BLOCKSIZE - 1;
+    // Number of bytes (4 symbol groups) to flush the FIR filter.
+    static constexpr uint8_t FLUSH_LEN = ((m17::FILTER_TAP_NUM / UPSAMPLE) + 3) / 4;
     static constexpr int16_t DAC_BUFFER_LEN = 80;               // 8 symbols, 16 bits, 2 bytes.
     static constexpr int16_t TRANSFER_LEN = DAC_BUFFER_LEN / 2; // 4 symbols, 8 bits, 1 byte.
     static constexpr uint16_t VREF = 4095;
@@ -40,8 +41,8 @@ struct M17Modulator : Modulator
     osMessageQId dacOutputQueueHandle_{0};
     PTT* ptt_{nullptr};
     uint16_t volume_{4096};
-    std::atomic<uint16_t> delay_count = 0;      // TX Delay
-    std::atomic<uint16_t> stop_count = 0;       // Flush the RRC matched filter.
+    volatile uint16_t delay_count = 0;      // TX Delay
+    volatile uint16_t stop_count = 0;       // Flush the RRC matched filter.
     State state{State::STOPPED};
     float tmp[TRANSFER_LEN];
     bool send_tone = false;
@@ -50,8 +51,8 @@ struct M17Modulator : Modulator
     : dacOutputQueueHandle_(queue), ptt_(ptt)
     {
         arm_fir_interpolate_init_f32(
-            &fir_interpolator, UPSAMPLE, m17::FILTER_TAP_NUM_15,
-            (float32_t*) m17::rrc_taps_f15.data(), fir_state.data(), BLOCKSIZE);
+            &fir_interpolator, UPSAMPLE, m17::FILTER_TAP_NUM,
+            (float32_t*) m17::rrc_taps_f.data(), fir_state.data(), BLOCKSIZE);
     }
 
     ~M17Modulator() override {}
@@ -119,7 +120,7 @@ struct M17Modulator : Modulator
             start_conversion();
             ptt_->on();
             while (delay_count < txdelay) osThreadYield();
-            stop_count = 4; // 16 symbols to flush the RRC filter.
+            stop_count = FLUSH_LEN;
             osMessagePut(dacOutputQueueHandle_, bits, osWaitForever);
             state = State::RUNNING;
             break;
@@ -171,7 +172,7 @@ struct M17Modulator : Modulator
         {
         case State::STARTING:
             fill_empty(buffer_.data());
-            ++delay_count;
+            delay_count += 1;
             break;
         case State::RUNNING:
             fill_empty(buffer_.data());
@@ -185,7 +186,7 @@ struct M17Modulator : Modulator
             stop_conversion();
             ptt_->off();
 #if defined(KISS_LOGGING) && defined(HAVE_LSCO)
-            HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
+                HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
             osMessagePut(audioInputQueueHandle, tnc::audio::DEMODULATOR,
               osWaitForever);
@@ -209,7 +210,7 @@ struct M17Modulator : Modulator
         {
         case State::STARTING:
             fill_empty(buffer_.data() + TRANSFER_LEN);
-            ++delay_count;
+            delay_count += 1;
             break;
         case State::RUNNING:
             fill_empty(buffer_.data() + TRANSFER_LEN);

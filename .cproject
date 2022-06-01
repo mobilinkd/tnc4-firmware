@@ -68,6 +68,8 @@
                                     <listOptionValue builtIn="false" value="../Core/TNC"/>
                                     									
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/DSP/Include"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="../blaze"/>
                                     								
                                 </option>
                                 								
@@ -136,6 +138,8 @@
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/DSP/Include"/>
                                     									
                                     <listOptionValue builtIn="false" value="../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="../blaze"/>
                                     								
                                 </option>
                                 								
@@ -186,6 +190,8 @@
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/DSP/Include"/>
                                     									
                                     <listOptionValue builtIn="false" value="../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="../blaze"/>
                                     								
                                 </option>
                                 								
@@ -218,6 +224,8 @@
                                 </option>
                                 								
                                 <option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.option.nothreadsafestatics.1065615565" name="Disable thread-safe initialization of local static objects (-fno-threadsafe-statics)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.option.nothreadsafestatics" useByScannerDiscovery="false" value="true" valueType="boolean"/>
+                                								
+                                <option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.option.noexceptions.820038631" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.option.noexceptions" useByScannerDiscovery="false" value="false" valueType="boolean"/>
                                 								
                                 <inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.input.cpp.1249517850" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.input.cpp"/>
                                 							
@@ -378,6 +386,8 @@
                                     <listOptionValue builtIn="false" value="../Core/TNC"/>
                                     									
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/DSP/Include"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="../blaze"/>
                                     								
                                 </option>
                                 								
@@ -446,6 +456,8 @@
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/DSP/Include"/>
                                     									
                                     <listOptionValue builtIn="false" value="../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="../blaze"/>
                                     								
                                 </option>
                                 								
@@ -496,6 +508,8 @@
                                     <listOptionValue builtIn="false" value="../Drivers/CMSIS/DSP/Include"/>
                                     									
                                     <listOptionValue builtIn="false" value="../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS"/>
+                                    									
+                                    <listOptionValue builtIn="false" value="../blaze"/>
                                     								
                                 </option>
                                 								
@@ -524,6 +538,8 @@
                                     <listOptionValue builtIn="false" value="-fsigned-char -fsingle-precision-constant -fno-inline-functions -fdata-sections -ffunction-sections -fstack-usage -fstrict-aliasing -ffast-math --param large-stack-frame=128 --param large-stack-frame-growth=50"/>
                                     								
                                 </option>
+                                								
+                                <option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.option.noexceptions.1975620187" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.option.noexceptions" value="false" valueType="boolean"/>
                                 								
                                 <inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.input.cpp.1689550527" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.cpp.compiler.input.cpp"/>
                                 							
