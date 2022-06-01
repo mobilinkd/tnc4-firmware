@@ -171,7 +171,7 @@ void startIOEventTask(void const*)
 #ifdef STM32L433xx
                     HPCD.Instance->BCDR = 0;
 #endif
-                    HAL_PCD_MspDeInit(&HPCD);
+//                    HAL_PCD_MspDeInit(&HPCD);
                     HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_SET);
 //                    SysClock4();
                     if (ioport != getUsbPort())
@@ -296,8 +296,8 @@ void startIOEventTask(void const*)
             case CMD_USB_CONNECTED:
                 INFO("VBUS Detected");
 //                SysClock48();
-                MX_USB_DEVICE_Init();
-                HAL_PCD_MspInit(&HPCD);
+//                MX_USB_DEVICE_Init();
+//                HAL_PCD_MspInit(&HPCD);
 #ifdef STM32L433xx
                 HPCD.Instance->BCDR = 0;
 #endif
