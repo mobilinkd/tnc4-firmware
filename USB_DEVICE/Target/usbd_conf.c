@@ -862,6 +862,7 @@ void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeDef msg)
       case PCD_BCD_STD_DOWNSTREAM_PORT:
           // Only charge after negotiation
           TNC_DEBUG("Detected standard downstream USB port");
+          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
           downstream_port = 1;
           break;
 

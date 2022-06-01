@@ -513,8 +513,8 @@ void EXTI3_IRQHandler(void)
 void EXTI9_5_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
-	static GPIO_PinState sw_state = GPIO_PIN_RESET;
-	static GPIO_PinState up_state = GPIO_PIN_RESET;
+	static int sw_state = -1;
+	static int up_state = -1;
 
 	GPIO_PinState new_sw_state = HAL_GPIO_ReadPin(SW_POWER_GPIO_Port, SW_POWER_Pin);
     if (new_sw_state != sw_state)
@@ -527,7 +527,7 @@ void EXTI9_5_IRQHandler(void)
     	}
     }
 
-    GPIO_PinState new_up_state = HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin);
+    GPIO_PinState new_up_state = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9);
     if (new_up_state != up_state)
     {
     	up_state = new_up_state;

@@ -1540,9 +1540,15 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pins : USB_POWER_Pin SW_POWER_Pin */
-  GPIO_InitStruct.Pin = USB_POWER_Pin|SW_POWER_Pin;
+  /*Configure GPIO pins : SW_POWER_Pin */
+  GPIO_InitStruct.Pin = SW_POWER_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : USB_POWER_Pin */
+  GPIO_InitStruct.Pin = USB_POWER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
@@ -1982,14 +1988,17 @@ void StartDefaultTask(void const * argument)
 
   /* Infinite loop */
   indicate_waiting_to_connect();
+  MX_USB_DEVICE_Init();
+  HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
+  HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
 
   if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
   {
     INFO("VBUS detected\r\n");
-    MX_USB_DEVICE_Init();
-    HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
-    HAL_PCDEx_ActivateBCD(&hpcd_USB_OTG_FS);
-    HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
+//    MX_USB_DEVICE_Init();
+//    HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
+//    HAL_PCDEx_ActivateBCD(&hpcd_USB_OTG_FS);
+//    HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
   } else {
 	INFO("VBUS not detected\r\n");
   }
