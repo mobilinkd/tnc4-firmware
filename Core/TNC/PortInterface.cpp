@@ -7,9 +7,12 @@
 #include "UsbPort.hpp"
 #endif
 #include "NullPort.hpp"
+#include "main.h"
 
 #include <algorithm>
 #include <cstring>
+
+extern UART_HandleTypeDef huart3;
 
 namespace mobilinkd { namespace tnc {
 

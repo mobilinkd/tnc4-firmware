@@ -25,8 +25,9 @@
 /* USER CODE BEGIN Includes */
 #include "stm32l4xx_hal.h"
 #include "cmsis_os.h"
-#include "main.h"
 #include "LEDIndicator.h"
+#include "power.h"
+#include "usb_device.h"
 
 /* USER CODE END Includes */
 
@@ -49,6 +50,7 @@
 /* USER CODE BEGIN PV */
 extern osMessageQId ioEventQueueHandle;
 extern TIM_HandleTypeDef htim8;
+extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE END PV */
 
@@ -61,36 +63,75 @@ void idleInterruptCallback(UART_HandleTypeDef* huart);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+volatile uint32_t delay_count = 0;
+
+
+void delay(uint32_t ms) {
+	delay_count = (SystemCoreClock >> 13) * ms;
+	for (uint32_t i = 0; i != delay_count; ++i) asm volatile("nop");
+}
+
 void dit()
 {
 	HAL_GPIO_WritePin(LED_TX_GPIO_Port, LED_TX_Pin, GPIO_PIN_RESET);
-	HAL_Delay(100);
+	delay(100);
 	HAL_GPIO_WritePin(LED_TX_GPIO_Port, LED_TX_Pin, GPIO_PIN_SET);
-	HAL_Delay(100);
+	delay(100);
 }
 
 void dah()
 {
 	HAL_GPIO_WritePin(LED_TX_GPIO_Port, LED_TX_Pin, GPIO_PIN_RESET);
-	HAL_Delay(300);
+	delay(300);
 	HAL_GPIO_WritePin(LED_TX_GPIO_Port, LED_TX_Pin, GPIO_PIN_SET);
-	HAL_Delay(100);
+	delay(100);
 }
 
 void brk1()
 {
-	HAL_Delay(300);
+	delay(300);
 }
 
 void brk2()
 {
-	HAL_Delay(700);
+	delay(700);
 }
 
+/**
+ * Output a two-digit error code in Morse. This outputs an error code non-stop
+ * in Morse code to the TX LED (red). Once this code is hit, the TNC will need
+ * to be reset.
+ *
+ * The code is passed as a 5-bit value, with 1 = dit, 0 = dah.
+ *
+ * For example:
+ *  0 = 00000 / 0x00
+ *  1 = 10000 / 0x10
+ *  2 = 11000 / 0x18
+ *  3 = 11100 / 0x1C
+ *  4 = 11110 / 0x1E
+ *  5 = 11111 / 0x1F
+ *  6 = 01111 / 0x0F
+ *  7 = 00111 / 0x07
+ *  8 = 00011 / 0x03
+ *  9 = 00001 / 0x01
+ */
 void error_code(int8_t a, int8_t b)
 {
-	rx_off();
-	tx_off();
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	HAL_TIM_PWM_DeInit(&LED_PWM_TIMER_HANDLE);	// Disable PWM.
+
+	// Re-initialize LED GPIO.
+	GPIO_InitStruct.Pin = LED_BT_Pin|LED_RX_Pin|LED_TX_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+	HAL_GPIO_WritePin(LED_BT_GPIO_Port, LED_BT_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LED_RX_GPIO_Port, LED_RX_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LED_TX_GPIO_Port, LED_TX_Pin, GPIO_PIN_SET);
 
 	a &= 0x1F;
 	b &= 0x1F;
@@ -117,7 +158,7 @@ void error_code(int8_t a, int8_t b)
 
 /* External variables --------------------------------------------------------*/
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
-extern DMA_HandleTypeDef hdma_adc1;
+extern DMA_HandleTypeDef hdma_adc2;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
 extern COMP_HandleTypeDef hcomp1;
@@ -143,7 +184,7 @@ extern TIM_HandleTypeDef htim15;
 void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-	error_code(0, 0x1f);	// 04 error code
+	error_code(MORSE_0, MORSE_1);	// NMI = 0,1
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
   while (1)
@@ -158,7 +199,8 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-	error_code(0, 0x1e);	// 04 error code
+	(*((volatile unsigned long *)(0xE0000004))) = SCB->HFSR;
+	error_code(MORSE_0, MORSE_2);	// Hard Fault = 0,2
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -173,7 +215,7 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-	error_code(0, 0x1c);	// 03 error code
+	error_code(MORSE_0, MORSE_3);	// Memory = 0,3
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -188,7 +230,7 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-	error_code(0, 0x10);	// 01 error code
+	error_code(MORSE_0, MORSE_4);	// Bus = 0,4
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -203,7 +245,7 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-	error_code(0, 0x18);	// 02 error code
+	error_code(MORSE_0, MORSE_5);	// Usage = 0,5
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -268,7 +310,7 @@ void DMA1_Channel3_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel3_IRQn 0 */
 
   /* USER CODE END DMA1_Channel3_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_adc1);
+  HAL_DMA_IRQHandler(&hdma_adc2);
   /* USER CODE BEGIN DMA1_Channel3_IRQn 1 */
 
   /* USER CODE END DMA1_Channel3_IRQn 1 */
@@ -414,7 +456,7 @@ void DMAMUX1_OVR_IRQHandler(void)
 
   /* USER CODE END DMAMUX1_OVR_IRQn 0 */
   // Handle DMA1_Channel3
-  HAL_DMAEx_MUX_IRQHandler(&hdma_adc1);
+  HAL_DMAEx_MUX_IRQHandler(&hdma_adc2);
   /* USER CODE BEGIN DMAMUX1_OVR_IRQn 1 */
 
   /* USER CODE END DMAMUX1_OVR_IRQn 1 */
@@ -428,6 +470,7 @@ void DMAMUX1_OVR_IRQHandler(void)
 void EXTI0_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI0_IRQn 0 */
+#if 0
     GPIO_PinState state2 = HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
     GPIO_PinState state1 = HAL_GPIO_ReadPin(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
 
@@ -439,7 +482,7 @@ void EXTI0_IRQHandler(void)
       int state = (state1 == GPIO_PIN_SET ? CMD_BT_TX : CMD_BT_IDLE);
       osMessagePut(ioEventQueueHandle, state, 0);
     }
-
+#endif
   /* USER CODE END EXTI0_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
   /* USER CODE BEGIN EXTI0_IRQn 1 */
@@ -453,10 +496,12 @@ void EXTI0_IRQHandler(void)
 void EXTI1_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI1_IRQn 0 */
-    if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
-    {
+
+    if (!bt_connected && HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET) {
+    	bt_connected = 1;
     	osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
-    } else {
+    } else if (bt_connected && HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_SET) {
+    	bt_connected = 0;
     	osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
     }
 
@@ -507,35 +552,32 @@ void EXTI3_IRQHandler(void)
   /* USER CODE END EXTI3_IRQn 1 */
 }
 
+
 /**
   * @brief This function handles EXTI line[9:5] interrupts.
   */
 void EXTI9_5_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI9_5_IRQn 0 */
-	static int sw_state = -1;
-	static int up_state = -1;
 
-	GPIO_PinState new_sw_state = HAL_GPIO_ReadPin(SW_POWER_GPIO_Port, SW_POWER_Pin);
-    if (new_sw_state != sw_state)
+	// SW_POWER?
+    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_5) != 0x00u)
     {
-    	sw_state = new_sw_state;
-    	if (sw_state == GPIO_PIN_RESET) {
-    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_UP, 0);
-    	} else {
+    	if (GPIOC->IDR & GPIO_PIN_5) {
     		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_DOWN, 0);
+    	} else {
+    		osMessagePut(ioEventQueueHandle, CMD_POWER_BUTTON_UP, 0);
     	}
     }
 
-    GPIO_PinState new_up_state = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9);
-    if (new_up_state != up_state)
-    {
-    	up_state = new_up_state;
-    	if (up_state == GPIO_PIN_SET) {
-		  osMessagePut(ioEventQueueHandle, CMD_USB_CONNECTED, 0);
-		} else {
-		  osMessagePut(ioEventQueueHandle, CMD_USB_DISCONNECTED, 0);
-		}
+    // VUSB_SENSE?
+    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_9) != 0x00u) {
+        if (GPIOA->IDR & GPIO_PIN_9)
+        {
+        	osMessagePut(ioEventQueueHandle, CMD_USB_CONNECTED, 0);
+        } else {
+        	osMessagePut(ioEventQueueHandle, CMD_USB_DISCONNECTED, 0);
+        }
     }
 
   /* USER CODE END EXTI9_5_IRQn 0 */
@@ -560,4 +602,3 @@ void EXTI15_10_IRQHandler(void)
 }
 
 /* USER CODE END 1 */
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

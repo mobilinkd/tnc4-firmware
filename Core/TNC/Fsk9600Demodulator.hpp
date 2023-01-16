@@ -51,6 +51,7 @@ struct Fsk9600Demodulator : IDemodulator
     bool decoding_{false};
 
     virtual ~Fsk9600Demodulator() {}
+    size_t get_adc_exponent() const override { return 2; }
 
     void start() override
     {
@@ -61,12 +62,6 @@ struct Fsk9600Demodulator : IDemodulator
         demod_filter.init(bpf);
         passall(kiss::settings().options & KISS_OPTION_PASSALL);
 
-        hadc1.Init.OversamplingMode = ENABLE;
-        if (HAL_ADC_Init(&hadc1) != HAL_OK)
-        {
-            CxxErrorHandler();
-        }
-
         ADC_ChannelConfTypeDef sConfig;
 
         sConfig.Channel = AUDIO_IN;
@@ -75,7 +70,7 @@ struct Fsk9600Demodulator : IDemodulator
         sConfig.SamplingTime = ADC_SAMPLETIME_6CYCLES_5;
         sConfig.OffsetNumber = ADC_OFFSET_NONE;
         sConfig.Offset = 0;
-        if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+        if (HAL_ADC_ConfigChannel(&DEMODULATOR_ADC_HANDLE, &sConfig) != HAL_OK)
             CxxErrorHandler();
 
         startADC(374, ADC_BLOCK_SIZE);

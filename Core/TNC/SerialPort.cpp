@@ -328,9 +328,14 @@ void SerialPort::init()
 
     mutex_ = osMutexCreate(osMutex(serialMutex));
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
+
     osThreadStaticDef(serialTask, startSerialTask, osPriorityAboveNormal, 0,
         128, serialTaskBuffer, &serialTaskControlBlock);
     serialTaskHandle_ = osThreadCreate(osThread(serialTask), this);
+
+#pragma GCC diagnostic pop
 }
 
 bool SerialPort::open()

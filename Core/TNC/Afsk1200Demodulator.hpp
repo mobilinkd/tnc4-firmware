@@ -59,10 +59,10 @@ struct Afsk1200Demodulator : IDemodulator
     bool locked_{false};
 
     virtual ~Afsk1200Demodulator() {}
+    size_t get_adc_exponent() const override { return 2; }
 
     void start() override
     {
-        INFO("Setting 48MHz SysClock.");
         SysClock48();
 
         // rx_twist is 6dB for discriminator input and 0db for de-emphasized input.
@@ -79,12 +79,6 @@ struct Afsk1200Demodulator : IDemodulator
         demod_filter.init(bpf_coeffs);
         passall(kiss::settings().options & KISS_OPTION_PASSALL);
 
-        hadc1.Init.OversamplingMode = ENABLE;
-        if (HAL_ADC_Init(&hadc1) != HAL_OK)
-        {
-            CxxErrorHandler();
-        }
-
         ADC_ChannelConfTypeDef sConfig;
 
         sConfig.Channel = AUDIO_IN;
@@ -93,7 +87,7 @@ struct Afsk1200Demodulator : IDemodulator
         sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
         sConfig.OffsetNumber = ADC_OFFSET_NONE;
         sConfig.Offset = 0;
-        if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+        if (HAL_ADC_ConfigChannel(&DEMODULATOR_ADC_HANDLE, &sConfig) != HAL_OK)
             CxxErrorHandler();
         startADC(1817, ADC_BLOCK_SIZE);
     }

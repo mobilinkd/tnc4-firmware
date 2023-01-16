@@ -20,9 +20,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stm32l4xx_it.h"
 #include "usbd_core.h"
 #include "IOEventTask.h"
 #include "PortInterface.h"
@@ -30,6 +32,7 @@
 #include "bm78.h"
 #include "KissHardware.h"
 #include "Log.h"
+#include "power.h"
 
 
 /* USER CODE END Includes */
@@ -49,9 +52,9 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
+ ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
-DMA_HandleTypeDef hdma_adc1;
+DMA_HandleTypeDef hdma_adc2;
 
 COMP_HandleTypeDef hcomp1;
 
@@ -125,59 +128,42 @@ osMutexId hardwareInitMutexHandle;
 int lost_power = 0;
 int reset_requested = 0;
 char serial_number_64[13] = {0};
+
+/*
+ * The TNC will restart for a number of reasons:
+ *
+ * - Initial power on due to loss of power (backup domain not retained).
+ * - Restart due to shutdown or restart from firmware update (backup domain
+ *   retained).
+ * - Restart due to watchdog timeout (backup domain retained).
+ * - Restart to stop mode (SRAM, backup domain retained).
+ * - Restart due to ErrorHandler() call (SRAM, backup domain retained).
+ */
+
 // Make sure it is not overwritten during resets (safedata).
 uint8_t mac_address[6] __attribute__((section(".safedata")));
 char error_message[80] __attribute__((section(".safedata")));
+
 // USB power control -- need to renegotiate USB charging in STOP mode.
 int go_back_to_sleep __attribute__((section(".safedata")));
-int stop_now __attribute__((section(".safedata")));
 int charging_enabled __attribute__((section(".safedata")));
 int usb_wake_state __attribute__((section(".safedata")));
-//uint8_t mac_address[6] = {0};
-//char error_message[80] = {0};
-//// USB power control -- need to renegotiate USB charging in STOP mode.
-//int go_back_to_sleep = 0;
-//int stop_now = 0;
-//int charging_enabled = 0;
-//int usb_wake_state = 0;
+int bt_connected __attribute__((section(".safedata")));
 
 int reset_button = 0;
 extern void* testTonePtr;
-extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_ADC2_Init(void);
-static void MX_COMP1_Init(void);
-static void MX_CRC_Init(void);
-static void MX_DAC1_Init(void);
-static void MX_OPAMP1_Init(void);
-static void MX_OPAMP2_Init(void);
-static void MX_RNG_Init(void);
-static void MX_TIM6_Init(void);
-static void MX_TIM7_Init(void);
-static void MX_TIM8_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_I2C1_Init(void);
-static void MX_IWDG_Init(void);
-static void MX_RTC_Init(void);
-static void MX_ADC1_Init(void);
 void StartDefaultTask(void const * argument);
 extern void startIOEventTask(void const * argument);
 extern void startAudioInputTask(void const * argument);
 extern void startModulatorTask(void const * argument);
-extern void shutdown(void const * argument);
+extern void usbShutdownTimerCallback(void const * argument);
 
 /* USER CODE BEGIN PFP */
-void stop2(void) __attribute__((noinline));
-void configure_gpio_for_stop(void) __attribute__((noinline));
-void power_down_vdd(void);
-void power_up_vdd(void);
-void configure_wakeup_gpio(void);
 void enable_debug_gpio(void);
 void init_rtc_date_time(void);
 void init_rtc_alarm(void);
@@ -186,164 +172,6 @@ void init_rtc_alarm(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-extern PCD_HandleTypeDef hpcd_USB_FS;
-
-
-void configure_gpio_for_stop()
-{
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-    __HAL_RCC_GPIOH_CLK_ENABLE();
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-
-    HAL_NVIC_DisableIRQ(EXTI3_IRQn);
-
-    // BT_STATE1
-    HAL_GPIO_DeInit(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
-    HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
-    HAL_NVIC_ClearPendingIRQ(BT_STATE1_EXTI_IRQn);
-
-    // BT_STATE2
-    HAL_GPIO_DeInit(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
-    HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
-    HAL_NVIC_ClearPendingIRQ(BT_STATE2_EXTI_IRQn);
-
-    // SW_BOOT
-    HAL_GPIO_DeInit(SW_BOOT_GPIO_Port, SW_BOOT_Pin);
-    HAL_NVIC_DisableIRQ(SW_BOOT_EXTI_IRQn);
-    HAL_NVIC_ClearPendingIRQ(SW_BOOT_EXTI_IRQn);
-
-    // LEDs
-    HAL_GPIO_DeInit(GPIOA, LED_BT_Pin|LED_TX_Pin|LED_RX_Pin);
-
-    // I2C
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_8|GPIO_PIN_9);
-
-    // USB
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_11|GPIO_PIN_12);
-
-    // UART
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_1|GPIO_PIN_10|GPIO_PIN_11);
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_6);
-
-    // Battery level circuit.
-    HAL_GPIO_DeInit(BAT_ADC_GPIO_Port, BAT_ADC_Pin);
-    HAL_GPIO_DeInit(BAT_DIV_GPIO_Port, BAT_DIV_Pin);
-
-    if (charging_enabled)
-    {
-        HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
-    }
-    else
-    {
-        HAL_GPIO_DeInit(BAT_CE_GPIO_Port, BAT_CE_Pin);  // Hi-Z
-    }
-
-    // Bluetooth module
-    HAL_GPIO_DeInit(BT_WAKE_GPIO_Port, BT_WAKE_Pin);
-    HAL_GPIO_DeInit(BT_RESET_GPIO_Port, BT_RESET_Pin);
-    HAL_GPIO_DeInit(BT_CMD1_GPIO_Port, BT_CMD1_Pin);
-    HAL_GPIO_DeInit(BT_CMD2_GPIO_Port, BT_CMD2_Pin);
-    HAL_GPIO_DeInit(BT_CMD3_GPIO_Port, BT_CMD3_Pin);
-    HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET);
-    HAL_Delay(250);
-
-    // Analog pins
-    HAL_GPIO_DeInit(AUDIO_IN_GPIO_Port, AUDIO_IN_Pin);
-    HAL_GPIO_DeInit(AUDIO_AMP_GPIO_Port, AUDIO_AMP_Pin);
-    HAL_GPIO_DeInit(AUDIO_OUT_GPIO_Port, AUDIO_OUT_Pin);
-    HAL_GPIO_DeInit(DC_BIAS_GPIO_Port, DC_BIAS_Pin);
-    HAL_GPIO_DeInit(AUDIO_ATTEN_GPIO_Port, AUDIO_ATTEN_Pin);
-
-    // PTT pins
-    HAL_GPIO_DeInit(PTT_A_GPIO_Port, PTT_A_Pin);
-    HAL_GPIO_DeInit(PTT_B_GPIO_Port, PTT_B_Pin);
-}
-
-void power_down_vdd()
-{
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-
-    HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
-    for (int i = 0; i < 4800; ++i) asm volatile("nop");
-}
-
-void power_up_vdd()
-{
-    GPIO_InitTypeDef GPIO_InitStruct;
-
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-
-    GPIO_InitStruct.Pin = VDD_EN_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(VDD_EN_GPIO_Port, &GPIO_InitStruct);
-
-    HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-}
-
-void configure_wakeup_gpio()
-{
-    if (!__HAL_RCC_GPIOH_IS_CLK_ENABLED()) Error_Handler();
-
-    GPIO_InitTypeDef GPIO_InitStruct;
-
-    // Reset wakeup pins
-    HAL_NVIC_DisableIRQ(EXTI0_IRQn);
-    HAL_NVIC_DisableIRQ(EXTI1_IRQn);
-    HAL_GPIO_DeInit(GPIOH, USB_POWER_Pin|SW_POWER_Pin);
-
-    // Wake up whenever there is a change in VUSB to handle connect/disconnect events.
-    GPIO_InitStruct.Pin = USB_POWER_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING_FALLING;
-    GPIO_InitStruct.Pull = GPIO_PULLDOWN;   // needed to act as a voltage divider
-    HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
-
-    // Only wake up after the button has been released.  This avoids the case
-    // where the TNC is woken up on button down and then immediately put back
-    // to sleep when the BUTTON_UP interrupt is received.
-    GPIO_InitStruct.Pin = SW_POWER_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_EVT_FALLING;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
-}
-
-void enable_debug_gpio()
-{
-    if (!__HAL_RCC_GPIOA_IS_CLK_ENABLED()) Error_Handler();
-    if (!__HAL_RCC_GPIOB_IS_CLK_ENABLED()) Error_Handler();
-
-    GPIO_InitTypeDef GPIO_InitStruct;
-
-    // DEBUG PINS
-    GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Alternate = GPIO_AF0_SWJ;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-    // USART CTS is connected to a device on VDD
-    GPIO_InitStruct.Pin = GPIO_PIN_3;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Alternate = GPIO_AF0_TRACE;
-    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-}
-
-/**
- * Shutdown is used to enter stop mode in a clean state.  This ensures that
- * all IP have been reset & re-initialized to their default state when
- * entering low-power stop mode.  This is a work-around until we can
- * determine what causes a high-discharge state after USB is enabled.
- *
- * @param argument is unused.
- */
-void shutdown(void const* argument)
-{
-    UNUSED(argument);
-    stop_now = 1;
-    HAL_NVIC_SystemReset();
-}
 
 /*
  * Same algorithm as here: https://github.com/libopencm3/libopencm3/blob/master/lib/stm32/desig.c
@@ -378,42 +206,22 @@ void encode_serial_number()
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  // If not a software reset, reset the flags.  This prevents odd behavior
-  // during initial power on and hardware resets where SRAM2 may be in an
-  // inconsistent state.  During a soft reset, it should be initialized.
 
-  // This essentially tests for uninitialized memory.
-  if (go_back_to_sleep & ~1 || stop_now & ~1 || usb_wake_state & ~1 || charging_enabled & ~1)
-  {
-	  memset(mac_address, 0, 6);
-	  memset(error_message, 0, 80);
-	  go_back_to_sleep = 0;
-	  stop_now = 0;
-	  charging_enabled = 0;
-	  usb_wake_state = 0;
-  }
-
-  if (!(RCC->CSR & RCC_CSR_SFTRSTF)) {
-	  go_back_to_sleep = 0;
-	  stop_now = 0;
-	  usb_wake_state = 0;
-  }
-
-  if (RCC->CSR & RCC_CSR_BORRSTF)
-  {
-	  go_back_to_sleep = 0;
-	  stop_now = 0;
-	  usb_wake_state = 0;
-	  charging_enabled = 0;
-	  error_message[0] = 0;
-  }
-
-  if (RCC->CSR & (RCC_CSR_PINRSTF|RCC_CSR_BORRSTF)) {
-	  reset_button = 1;
-  } else {
-	  reset_button = 0;
-  }
-  __HAL_RCC_CLEAR_RESET_FLAGS();
+	uint32_t wakeEvent = PWR->SR1 & 0x1F;
+	// Capture cause of reset.
+  	ResetCause resetCause = RESET_CAUSE_UNKNOWN;
+	if (RCC->CSR & RCC_CSR_SFTRSTF) {
+		resetCause = RESET_CAUSE_SOFT;
+	} else if (RCC->CSR & RCC_CSR_PINRSTF) {
+		reset_button = 1;
+		resetCause = RESET_CAUSE_HARD;
+	} else if (RCC->CSR & RCC_CSR_BORRSTF) {
+		resetCause = RESET_CAUSE_BOR;
+	} else if (wakeEvent) {
+		resetCause = RESET_CAUSE_WUF;
+	} else if (__HAL_RTC_WAKEUPTIMER_GET_FLAG(&hrtc, RTC_FLAG_WUTF) != RESET) {
+		resetCause = RESET_CAUSE_WUTF;
+	}
 
   /* USER CODE END 1 */
 
@@ -424,20 +232,20 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
+  // Needed otherwise the shutdown pull-up/pull-down remain active after restart.
+  HAL_PWR_EnableBkUpAccess();
+  HAL_PWREx_DisablePullUpPullDownConfig();
+  HAL_PWREx_DisableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_9);	// VDD_EN
+  HAL_PWR_DisableBkUpAccess();
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-#ifdef KISS_LOGGING
-  printf("start\r\n");
-  if (error_message[0] != 0) {
-	  error_message[79] = 0;
-      printf(error_message);
-      error_message[0] = 0;
-  }
-#endif
+
+  TPI->ACPR = 7;	// 16MHz SysClock -> 2MHz SWO.
 
   // Note that it is important that all GPIO interrupts are disabled until
   // the FreeRTOS kernel has started.  All GPIO interrupts  send messages
@@ -450,41 +258,189 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ADC2_Init();
-  MX_COMP1_Init();
-  MX_CRC_Init();
-  MX_DAC1_Init();
-  MX_OPAMP1_Init();
-  MX_RNG_Init();
-  MX_TIM6_Init();
-  MX_TIM7_Init();
   MX_TIM8_Init();
-  MX_USART3_UART_Init();
-  MX_I2C1_Init();
   MX_RTC_Init();
-  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  if (stop_now) stop2();
+
+  switch (resetCause) {
+  case RESET_CAUSE_SOFT:
+	  INFO("software reset");
+	  break;
+  case RESET_CAUSE_HARD:
+	  INFO("hardware reset");
+	  // Reset the BKUP_TNC_LOWPOWER_STATE register to ensure the TNC wakes.
+	  HAL_PWR_EnableBkUpAccess();
+	  WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
+	  HAL_PWR_DisableBkUpAccess();
+	  break;
+  case RESET_CAUSE_BOR:
+	  INFO("brown-out reset");
+	  break;
+  case RESET_CAUSE_WUF:
+	  INFO("wake-up event: %02lx", wakeEvent);
+	  break;
+  case RESET_CAUSE_WUTF:
+	  INFO("wake-up timer");
+	  break;
+  default:
+	  INFO("unknown reset, RCC->CSR=0x%08lx", RCC->CSR);
+	  INFO("unknown reset, RTC->SR=0x%08lx", RTC->SR);
+	  INFO("unknown reset, PWR->SR1=0x%08lx", PWR->SR1);
+  }
+
+  INFO("PWR->SCR=0x%08lx", PWR->SCR);
+  INFO("PWR->CR1=0x%08lx", PWR->CR1);
+
+  __HAL_RCC_CLEAR_RESET_FLAGS();
+
+  uint32_t start = HAL_GetTick();
+
+  uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
+  uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
+
+  // Reset the BKUP_TNC_LOWPOWER_STATE register.
+  HAL_PWR_EnableBkUpAccess();
+  WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
+  HAL_PWR_DisableBkUpAccess();
+
+  go_back_to_sleep = !!(shutdown_reg & TNC_LOWPOWER_ENTER_STOP); // Stage 1 of stop cycle.
+
+  // If shutdown because battery is low and there is no VUSB, shutdown again.
+  if ((shutdown_reg & TNC_LOWPOWER_LOW_BAT) && !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+	  WARN("Battery too low to start");
+	  indicate_battery_low();
+	  HAL_Delay(3000);
+	  shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
+  }
+
+#ifdef KISS_LOGGING
+  printf("start\r\n");
+  if (resetCause == RESET_CAUSE_SOFT && error_message[0] != 0) {
+	  error_message[79] = 0;
+      printf(error_message);
+  }
+  error_message[0] = 0;
+#endif
+
+  if (shutdown_reg == 0) {
+	  memset(mac_address, 0, 6);
+	  memset(error_message, 0, 80);
+	  go_back_to_sleep = 0;
+	  charging_enabled = 0;
+	  usb_wake_state = 0;
+  }
+
+  // Needed to check battery level.
+  HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+  HAL_Delay(10);
+  MX_ADC1_Init();
+  if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
+
+  if (shutdown_reg & TNC_LOWPOWER_SHUTDOWN) {
+	  WakeType wake = SHUTDOWN;
+	  INFO("wake up");
+	  // OVP will glitch for 1ms when VUSB is enabled.
+	  if ((resetCause == RESET_CAUSE_WUF) &&
+			  (wakeEvent & PWR_WAKEUP_PIN4) &&
+			  !(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {	// OVP Error
+		  ERROR("over voltage");
+		  indicate_ovp_error();
+		  HAL_Delay(3000);	// Indicate OVP Error for at least 3 seconds.
+		  while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
+			  // Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
+			  if (HAL_GetTick() - start > 300000) {
+				  if (is_battery_low()) {
+					  WARN("low battery");
+					  indicate_battery_low();
+					  HAL_Delay(3030);
+					  shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
+				  }
+				  start = HAL_GetTick();
+			  }
+		  }
+		  if ((shutdown_reg & TNC_LOWPOWER_VBAT) && (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+			  wake = WAKE_UP;
+		  }
+	  } else if ((resetCause == RESET_CAUSE_WUF) &&
+			  (wakeEvent & PWR_WAKEUP_PIN5)) {					// SW_POWER
+		  INFO("power switch pressed");
+		  wake = SHUTDOWN;
+		  while ((SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) != 0) {
+			  if (HAL_GetTick() - start > 3000) {
+				  wake = WAKE_UP;
+				  break;
+			  }
+		  }
+		  if (wake == SHUTDOWN) {
+			  INFO("power switch press too short");
+		  }
+	  } else if (resetCause == RESET_CAUSE_WUF &&
+			  (wakeEvent & PWR_WAKEUP_PIN2) &&
+			  (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) { 	// VDD_SENSE
+		  INFO("USB power available");
+		  // Power must be present for more than 2 seconds.
+		  uint32_t start = HAL_GetTick();
+		  while (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
+			  if (HAL_GetTick() - start > 2000) {
+				  wake = WAKE_UP;
+				  break;
+			  }
+		  }
+		  if (wake == WAKE_UP && !(power_config_reg & POWER_CONFIG_WAKE_FROM_USB)) {
+			  wake = SHUTDOWN;
+		  }
+	  } else if ((shutdown_reg & TNC_LOWPOWER_VUSB) &&
+			  !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+		  // Wake from USB
+		  INFO("USB power lost");
+		  wake = SHUTDOWN;
+	  } else if (resetCause == RESET_CAUSE_WUTF) {
+		  INFO("RTC wake up");
+		  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+		  wake = WAKE_UP;
+	  } else if (resetCause != RESET_CAUSE_UNKNOWN) {
+		  WARN("Spurious wake up event");
+		  wake = WAKE_UP;
+	  } else {
+		  WARN("Unknown wake up event");
+		  wake = WAKE_UP;
+	  }
+
+	  if (wake == SHUTDOWN) {
+		  shutdown(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin ? TNC_LOWPOWER_VUSB : TNC_LOWPOWER_VBAT);
+	  }
+
+	  INFO("waking...");
+  }
+
+  // Don't start up at all if battery is low.
+  if (is_battery_low()) {
+	  WARN("low battery");
+	  indicate_battery_low();
+	  HAL_Delay(3030);
+	  shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
+  }
+
+  GPIO_PinState power_switch_state = !!(SW_POWER_GPIO_Port->IDR & SW_POWER_Pin);
 
   SCB->SHCSR |= 0x70000;    // Enable fault handlers;
   if (!go_back_to_sleep) {
       indicate_turning_on();    // LEDs on during boot.
-      if (HAL_GPIO_ReadPin(SW_POWER_GPIO_Port, SW_POWER_Pin) && reset_button) {
+      if (power_switch_state && reset_button) {
           reset_requested = 1;
       }
   }
 
   encode_serial_number();
 
-  // Manchester encoding mode on SWO.
-  // *((volatile unsigned *)(TPI->SPPR)) = 0x00000001;
-
-
   if (!go_back_to_sleep) {
-      // The Bluetooth module is powered on during MX_GPIO_Init().  BT_CMD
-      // has a weak pull-up on the BT module and is in OD mode.  Pull the
-      // pin low during boot to enter Bluetooth programming mode.  Here the
-      // BT_CMD pin is switched to input mode to detect the state.  The
+	  HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
+	  bm78_wait_until_ready();
+	  MX_USART3_UART_Init(); // Initialize UART.
+
+	  // BT_CMD has a weak pull-up on the BT module and is in OD mode.  Pull
+	  // the pin low during boot to enter Bluetooth programming mode.  Here
+	  // the BT_CMD pin is switched to input mode to detect the state.  The
       // TNC must be reset to exit programming mode.
 
       // Wait for BT module to settle.
@@ -508,7 +464,7 @@ int main(void)
           HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET);
           HAL_Delay(200);
 
-          printf("Bluetooth programming mode\r\n");
+          INFO("Bluetooth programming mode");
 
           while (1);
       }
@@ -543,7 +499,7 @@ int main(void)
 
   /* Create the timer(s) */
   /* definition and creation of usbShutdownTimer */
-  osTimerStaticDef(usbShutdownTimer, shutdown, &usbShutdownTimerControlBlock);
+  osTimerStaticDef(usbShutdownTimer, usbShutdownTimerCallback, &usbShutdownTimerControlBlock);
   usbShutdownTimerHandle = osTimerCreate(osTimer(usbShutdownTimer), osTimerOnce, NULL);
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -583,26 +539,32 @@ int main(void)
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
 
-  #pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
+
+  // ADC1 already initialized and calibrated.
+  MX_ADC2_Init();
+  MX_DAC1_Init();
+  MX_OPAMP1_Init();
+  MX_TIM6_Init();
+  MX_TIM7_Init();
+  MX_CRC_Init();
+  MX_RNG_Init();
 
   // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
   if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024) != HAL_OK) Error_Handler();
   if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK) Error_Handler();
   if (HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK) Error_Handler();
   if (HAL_OPAMP_Start(&hopamp1) != HAL_OK) Error_Handler();
-  if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
+  if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
 
   if (!go_back_to_sleep) {
-
-      // Initialize the BM78 Bluetooth module and the RTC date/time the first time we boot.
+      // Initialize the BM78 Bluetooth module. Note that a CPU speed of 2MHz
+	  // here will cause this to fail.
       if (!bm78_initialized() || reset_requested) {
           bm78_initialize();
-          memset(error_message, 0, sizeof(error_message));
-          // init_rtc_date_time();
-      } else if (reset_button) {
+      } else {
           bm78_initialize_mac_address();
       }
-      else bm78_wait_until_ready();
   }
 
   init_ioport();
@@ -614,7 +576,7 @@ int main(void)
   HAL_FLASHEx_OBGetConfig(&obInit);
 
   if ((obInit.OptionType & OPTIONBYTE_USER) == RESET) {
-    printf("FAIL: option byte init\r\n");
+    ERROR("FAIL: option byte init");
     Error_Handler();
   }
 
@@ -650,7 +612,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityLow, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of ioEventTask */
@@ -693,7 +655,6 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Configure the main internal regulator output voltage
   */
@@ -701,58 +662,38 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
   /** Configure LSE Drive Capability
   */
   HAL_PWR_EnableBkUpAccess();
   __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI
-                              |RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_LSE
-                              |RCC_OSCILLATORTYPE_MSI;
+                              |RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
-  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
-  RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_9;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
-  RCC_OscInitStruct.PLL.PLLM = 3;
-  RCC_OscInitStruct.PLL.PLLN = 18;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
+
   /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_USART3
-                              |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_USB
-                              |RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_ADC;
-  PeriphClkInit.Usart3ClockSelection = RCC_USART3CLKSOURCE_HSI;
-  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
-  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
-  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
-  PeriphClkInit.RngClockSelection = RCC_RNGCLKSOURCE_HSI48;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
   {
     Error_Handler();
   }
@@ -764,7 +705,7 @@ void SystemClock_Config(void)
   * @param None
   * @retval None
   */
-static void MX_ADC1_Init(void)
+void MX_ADC1_Init(void)
 {
 
   /* USER CODE BEGIN ADC1_Init 0 */
@@ -777,10 +718,11 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 1 */
 
   /* USER CODE END ADC1_Init 1 */
+
   /** Common config
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
@@ -789,9 +731,9 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = ENABLE;
   hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_16;
@@ -802,6 +744,7 @@ static void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
+
   /** Configure the ADC multi-mode
   */
   multimode.Mode = ADC_MODE_INDEPENDENT;
@@ -809,11 +752,12 @@ static void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
+
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_8;
+  sConfig.Channel = ADC_CHANNEL_16;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_92CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -832,7 +776,7 @@ static void MX_ADC1_Init(void)
   * @param None
   * @retval None
   */
-static void MX_ADC2_Init(void)
+void MX_ADC2_Init(void)
 {
 
   /* USER CODE BEGIN ADC2_Init 0 */
@@ -844,10 +788,11 @@ static void MX_ADC2_Init(void)
   /* USER CODE BEGIN ADC2_Init 1 */
 
   /* USER CODE END ADC2_Init 1 */
+
   /** Common config
   */
   hadc2.Instance = ADC2;
-  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc2.Init.Resolution = ADC_RESOLUTION_12B;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
@@ -858,7 +803,7 @@ static void MX_ADC2_Init(void)
   hadc2.Init.DiscontinuousConvMode = DISABLE;
   hadc2.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
   hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
-  hadc2.Init.DMAContinuousRequests = DISABLE;
+  hadc2.Init.DMAContinuousRequests = ENABLE;
   hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc2.Init.OversamplingMode = ENABLE;
   hadc2.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_16;
@@ -869,11 +814,12 @@ static void MX_ADC2_Init(void)
   {
     Error_Handler();
   }
+
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_16;
+  sConfig.Channel = ADC_CHANNEL_8;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -892,7 +838,7 @@ static void MX_ADC2_Init(void)
   * @param None
   * @retval None
   */
-static void MX_COMP1_Init(void)
+void MX_COMP1_Init(void)
 {
 
   /* USER CODE BEGIN COMP1_Init 0 */
@@ -926,7 +872,7 @@ static void MX_COMP1_Init(void)
   * @param None
   * @retval None
   */
-static void MX_CRC_Init(void)
+void MX_CRC_Init(void)
 {
 
   /* USER CODE BEGIN CRC_Init 0 */
@@ -960,7 +906,7 @@ static void MX_CRC_Init(void)
   * @param None
   * @retval None
   */
-static void MX_DAC1_Init(void)
+void MX_DAC1_Init(void)
 {
 
   /* USER CODE BEGIN DAC1_Init 0 */
@@ -972,6 +918,7 @@ static void MX_DAC1_Init(void)
   /* USER CODE BEGIN DAC1_Init 1 */
 
   /* USER CODE END DAC1_Init 1 */
+
   /** DAC Initialization
   */
   hdac1.Instance = DAC1;
@@ -979,6 +926,7 @@ static void MX_DAC1_Init(void)
   {
     Error_Handler();
   }
+
   /** DAC channel OUT1 config
   */
   sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
@@ -990,6 +938,7 @@ static void MX_DAC1_Init(void)
   {
     Error_Handler();
   }
+
   /** DAC channel OUT2 config
   */
   sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
@@ -1008,7 +957,7 @@ static void MX_DAC1_Init(void)
   * @param None
   * @retval None
   */
-static void MX_I2C1_Init(void)
+void MX_I2C1_Init(void)
 {
 
   /* USER CODE BEGIN I2C1_Init 0 */
@@ -1031,18 +980,21 @@ static void MX_I2C1_Init(void)
   {
     Error_Handler();
   }
+
   /** Configure Analogue filter
   */
   if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
   {
     Error_Handler();
   }
+
   /** Configure Digital filter
   */
   if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
   {
     Error_Handler();
   }
+
   /** I2C Fast mode Plus enable
   */
   HAL_I2CEx_EnableFastModePlus(I2C_FASTMODEPLUS_I2C1);
@@ -1057,7 +1009,7 @@ static void MX_I2C1_Init(void)
   * @param None
   * @retval None
   */
-static void MX_IWDG_Init(void)
+void MX_IWDG_Init(void)
 {
 
   /* USER CODE BEGIN IWDG_Init 0 */
@@ -1086,7 +1038,7 @@ static void MX_IWDG_Init(void)
   * @param None
   * @retval None
   */
-static void MX_OPAMP1_Init(void)
+void MX_OPAMP1_Init(void)
 {
 
   /* USER CODE BEGIN OPAMP1_Init 0 */
@@ -1119,7 +1071,7 @@ static void MX_OPAMP1_Init(void)
   * @param None
   * @retval None
   */
-static void MX_OPAMP2_Init(void)
+void MX_OPAMP2_Init(void)
 {
 
   /* USER CODE BEGIN OPAMP2_Init 0 */
@@ -1151,7 +1103,7 @@ static void MX_OPAMP2_Init(void)
   * @param None
   * @retval None
   */
-static void MX_RNG_Init(void)
+void MX_RNG_Init(void)
 {
 
   /* USER CODE BEGIN RNG_Init 0 */
@@ -1200,7 +1152,7 @@ static void MX_RNG_Init(void)
   * @param None
   * @retval None
   */
-static void MX_RTC_Init(void)
+void MX_RTC_Init(void)
 {
 
   /* USER CODE BEGIN RTC_Init 0 */
@@ -1213,6 +1165,7 @@ static void MX_RTC_Init(void)
   /* USER CODE BEGIN RTC_Init 1 */
 
   /* USER CODE END RTC_Init 1 */
+
   /** Initialize RTC Only
   */
   hrtc.Instance = RTC;
@@ -1264,7 +1217,7 @@ static void MX_RTC_Init(void)
   * @param None
   * @retval None
   */
-static void MX_TIM6_Init(void)
+void MX_TIM6_Init(void)
 {
 
   /* USER CODE BEGIN TIM6_Init 0 */
@@ -1302,7 +1255,7 @@ static void MX_TIM6_Init(void)
   * @param None
   * @retval None
   */
-static void MX_TIM7_Init(void)
+void MX_TIM7_Init(void)
 {
 
   /* USER CODE BEGIN TIM7_Init 0 */
@@ -1340,7 +1293,7 @@ static void MX_TIM7_Init(void)
   * @param None
   * @retval None
   */
-static void MX_TIM8_Init(void)
+void MX_TIM8_Init(void)
 {
 
   /* USER CODE BEGIN TIM8_Init 0 */
@@ -1356,7 +1309,7 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 47;
+  htim8.Init.Prescaler = 15;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim8.Init.Period = 9999;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -1428,7 +1381,7 @@ static void MX_TIM8_Init(void)
   * @param None
   * @retval None
   */
-static void MX_USART3_UART_Init(void)
+void MX_USART3_UART_Init(void)
 {
 
   /* USER CODE BEGIN USART3_Init 0 */
@@ -1474,7 +1427,7 @@ static void MX_USART3_UART_Init(void)
 /**
   * Enable DMA controller clock
   */
-static void MX_DMA_Init(void)
+void MX_DMA_Init(void)
 {
 
   /* DMA controller clock enable */
@@ -1511,7 +1464,7 @@ static void MX_DMA_Init(void)
   * @param None
   * @retval None
   */
-static void MX_GPIO_Init(void)
+void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
@@ -1523,10 +1476,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin|VDD_EN_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, BAT_DIV_Pin|BAT_CE_Pin|BT_CMD1_Pin|BT_RESET_Pin, GPIO_PIN_SET);
@@ -1535,35 +1488,23 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, PTT_B_Pin|PTT_A_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(BT_WAKE_GPIO_Port, BT_WAKE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, VDD_EN_Pin|BT_WAKE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : SW_POWER_Pin */
-  GPIO_InitStruct.Pin = SW_POWER_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : USB_POWER_Pin */
-  GPIO_InitStruct.Pin = USB_POWER_Pin;
+  /*Configure GPIO pins : VDD_SENSE_Pin BT_STATE1_Pin BT_STATE2_Pin SW_POWER_Pin */
+  GPIO_InitStruct.Pin = VDD_SENSE_Pin|BT_STATE1_Pin|BT_STATE2_Pin|SW_POWER_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : TCXO_EN_Pin */
   GPIO_InitStruct.Pin = TCXO_EN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(TCXO_EN_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : BT_STATE1_Pin BT_STATE2_Pin */
-  GPIO_InitStruct.Pin = BT_STATE1_Pin|BT_STATE2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : BT_CMD2_Pin BT_CMD3_Pin AUDIO_ATTEN_Pin BT_WAKE_Pin */
   GPIO_InitStruct.Pin = BT_CMD2_Pin|BT_CMD3_Pin|AUDIO_ATTEN_Pin|BT_WAKE_Pin;
@@ -1578,11 +1519,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : OVP_ERROR_Pin */
-  GPIO_InitStruct.Pin = OVP_ERROR_Pin;
+  /*Configure GPIO pins : OVP_ERROR_Pin VUSB_SENSE_Pin */
+  GPIO_InitStruct.Pin = OVP_ERROR_Pin|VUSB_SENSE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(OVP_ERROR_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB10_Pin PB12_Pin PB7 */
   GPIO_InitStruct.Pin = PB10_Pin|PB12_Pin|GPIO_PIN_7;
@@ -1636,57 +1577,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void stop2()
-{
-  vTaskSuspendAll();
-
-  int usb_stop_state = HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin);
-
-  HAL_OPAMP_DeInit(&hopamp1);
-  HAL_TIM_PWM_DeInit(&htim8);
-  HAL_I2C_DeInit(&hi2c1);
-  HAL_ADC_DeInit(&hadc1);
-  HAL_DAC_DeInit(&hdac1);
-  HAL_UART_DeInit(&huart3);
-
-  HAL_PWR_DisablePVD();
-  HAL_PWREx_DisableVddUSB();
-  HAL_ADCEx_EnterADCDeepPowerDownMode(&hadc1);
-  configure_gpio_for_stop();
-  if (!usb_stop_state) power_down_vdd();
-
-  HAL_RCCEx_DisableLSCO();
-
-  configure_wakeup_gpio();
-
-  __asm volatile ( "cpsid i" );
-  __asm volatile ( "dsb" );
-  __asm volatile ( "isb" );
-
-  go_back_to_sleep = 0;
-  stop_now = 0;
-
-  HAL_PWREx_DisableLowPowerRunMode();
-  HAL_DBGMCU_DisableDBGStopMode();
-  HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFE);
-
-  // Powered off state
-  // When awakened by USB_POWER pin change:
-  // If unplugged, re-init IO, disabling charging, then go back to STOP.
-  // If plugged, re-init IO, do charger detection then,
-  // If powerOnViaUSB(), stay awake, otherwise go back to STOP.
-  usb_wake_state = HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin);
-  go_back_to_sleep = (usb_stop_state != usb_wake_state);
-  if (usb_wake_state) {
-      if (powerOnViaUSB()) {
-          go_back_to_sleep = 0;
-      }
-  } else {
-      charging_enabled = 0;
-  }
-  HAL_NVIC_SystemReset();
-}
-
 #if 1
 long _write_r(struct _reent *r, int fd, const char *ptr, int len);
 
@@ -1716,7 +1606,7 @@ int _write(int file, char *ptr, int len) {
 
 void init_rtc_date_time()
 {
-    if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) != 0) return;
+    if (READ_REG(BKUP_BT_EEPROM_CRC) != 0) return;
 
     RTC_TimeTypeDef sTime;
     RTC_DateTypeDef sDate;
@@ -1774,29 +1664,129 @@ void init_rtc_alarm()
 
 }
 
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SysClock2(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  if (HAL_RCC_GetHCLKFreq() == 2000000) return;
+
+  INFO("Setting 2MHz SysClock.");
+
+  vTaskSuspendAll();
+
+  HAL_PWREx_DisableLowPowerRunMode();
+
+  /** Configure the main internal regulator output voltage
+  */
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+
+  // Use HSI for SysClock while reconfiguring clocks.
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+  // Disable HSE, enable MSI and set to 2MHz, disable PLL.
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI|RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
+  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+  RCC_OscInitStruct.MSICalibrationValue = 0;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_OFF;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  // Set SysClock to MSI.
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /**Configure the Systick interrupt time
+  */
+  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+
+  HAL_RCCEx_EnableMSIPLLMode();
+
+  // Set voltage regulators to lowest power mode.
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  HAL_PWREx_EnableLowPowerRunMode();
+
+  // Disable TCXO.
+  HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
+
+  TPI->ACPR = 0;
+  LED_PWM_TIMER_HANDLE.Instance->PSC = 1;
+
+  xTaskResumeAll();
+}
+
 void SysClock48()
 {
-    RCC_OscInitTypeDef RCC_OscInitStruct;
-    RCC_ClkInitTypeDef RCC_ClkInitStruct;
+	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
     if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 48000000) return;
 
     INFO("Setting 48MHz SysClock.");
 
+    // VDD must be enabled to use TCXO.
+    if (!(VDD_SENSE_GPIO_Port->IDR & VDD_SENSE_Pin)) {
+        _Error_Handler(__FILE__, __LINE__);
+    }
+
+    // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
+    HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
+
+    if (osKernelRunning()) {
+    	osDelay(10);
+    } else {
+    	HAL_Delay(10);
+    }
+
+    vTaskSuspendAll();
+
+    // Set voltage regulator to normal run mode.
+    HAL_PWREx_DisableLowPowerRunMode();
+    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
+    {
+    	Error_Handler();
+    }
+
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
 
+    // Use HSI for SysClock while reconfiguring clocks.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
     {
-      _Error_Handler(__FILE__, __LINE__);
+    	_Error_Handler(__FILE__, __LINE__);
     }
 
-    /**Configure the Systick interrupt time
-    */
-    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+    RCC_OscInitStruct.MSIState = RCC_MSI_OFF;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
@@ -1804,22 +1794,32 @@ void SysClock48()
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+
+    HAL_StatusTypeDef result = HAL_RCC_OscConfig(&RCC_OscInitStruct);
+    if (result != HAL_OK)
     {
-      _Error_Handler(__FILE__, __LINE__);
+    	ERROR("HAL_RCC_OscConfig = %d", result);
+    	_Error_Handler(__FILE__, __LINE__);
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+    result = HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
+    if (result != HAL_OK)
     {
-      _Error_Handler(__FILE__, __LINE__);
+    	ERROR("HAL_RCC_ClockConfig = %d", result);
+    	_Error_Handler(__FILE__, __LINE__);
     }
 
     /**Configure the Systick interrupt time
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+
+    TPI->ACPR = 23;
+    LED_PWM_TIMER_HANDLE.Instance->PSC = 47;
+
+    xTaskResumeAll();
 }
 
 void SysClock72()
@@ -1829,18 +1829,36 @@ void SysClock72()
 
     if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 72000000) return;
 
+    // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
+    HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
+    if (osKernelRunning())
+    	osDelay(10);
+    else
+    	HAL_Delay(10);
+
     INFO("Setting 72MHz SysClock.");
+
+    vTaskSuspendAll();
+
+    // Set voltage regulator to normal run mode.
+    HAL_PWREx_DisableLowPowerRunMode();
+    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
+    {
+      Error_Handler();
+    }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
 
+    // Use HSI for SysClock while reconfiguring clocks.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
     {
       _Error_Handler(__FILE__, __LINE__);
     }
 
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+    RCC_OscInitStruct.MSIState = RCC_MSI_OFF;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
@@ -1861,12 +1879,14 @@ void SysClock72()
       _Error_Handler(__FILE__, __LINE__);
     }
 
-    HAL_RCCEx_EnableMSIPLLMode();
-
     /**Configure the Systick interrupt time
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_PLLCLK, RCC_MCODIV_4);
+
+    TPI->ACPR = 35;
+    LED_PWM_TIMER_HANDLE.Instance->PSC = 71;
+
+    xTaskResumeAll();
 }
 
 void SysClock80()
@@ -1879,6 +1899,15 @@ void SysClock80()
 
     INFO("Setting 80MHz SysClock.");
 
+    // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
+    HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
+    if (osKernelRunning())
+    	osDelay(10);
+    else
+    	HAL_Delay(10);
+
+    vTaskSuspendAll();
+
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
 
@@ -1887,8 +1916,9 @@ void SysClock80()
       _Error_Handler(__FILE__, __LINE__);
     }
 
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+    RCC_OscInitStruct.MSIState = RCC_MSI_OFF;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
     RCC_OscInitStruct.PLL.PLLM = 3;
@@ -1912,14 +1942,31 @@ void SysClock80()
     /**Configure the Systick interrupt time
     */
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+
+    TPI->ACPR = 39;
+    LED_PWM_TIMER_HANDLE.Instance->PSC = 79;
+
+    xTaskResumeAll();
 }
 
 void SysClock4()
 {
-	return;
+	RCC_OscInitTypeDef RCC_OscInitStruct;
     RCC_ClkInitTypeDef RCC_ClkInitStruct;
 
     taskENTER_CRITICAL();
+
+    __HAL_RCC_PWR_CLK_ENABLE();
+
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+    RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+      _Error_Handler(__FILE__, __LINE__);
+    }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
@@ -1950,12 +1997,17 @@ void _Error_Handler(char *file, int line)
   snprintf(error_message, sizeof(error_message), "Error: %s:%d\r\n", file, line);
   error_message[sizeof(error_message) - 1] = 0;
 
-  stop_now = 0;
   go_back_to_sleep = 0;
 
   error_code(0x11, 0x11);
 
   NVIC_SystemReset();
+}
+
+
+void usbShutdownTimerCallback(void const * argument)
+{
+	shutdown(TNC_LOWPOWER_VUSB);
 }
 
 /* USER CODE END 4 */
@@ -1987,23 +2039,6 @@ void StartDefaultTask(void const * argument)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* Infinite loop */
-  indicate_waiting_to_connect();
-  MX_USB_DEVICE_Init();
-  HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
-  HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
-
-  if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
-  {
-    INFO("VBUS detected\r\n");
-//    MX_USB_DEVICE_Init();
-//    HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
-//    HAL_PCDEx_ActivateBCD(&hpcd_USB_OTG_FS);
-//    HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
-  } else {
-	INFO("VBUS not detected\r\n");
-  }
-
-  /* Infinite loop */
     for(;;)
     {
       osDelay(osWaitForever);
@@ -2012,7 +2047,7 @@ void StartDefaultTask(void const * argument)
   /* USER CODE END 5 */
 }
 
- /**
+/**
   * @brief  Period elapsed callback in non blocking mode
   * @note   This function is called  when TIM15 interrupt took place, inside
   * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
@@ -2043,7 +2078,6 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-  stop_now = 0;
   go_back_to_sleep = 0;
   NVIC_SystemReset();
   /* USER CODE END Error_Handler_Debug */
@@ -2066,5 +2100,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

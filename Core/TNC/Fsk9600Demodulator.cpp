@@ -6,6 +6,7 @@
 #include "AudioInput.hpp"
 #include "GPIO.hpp"
 #include "Log.h"
+#include "power.h"
 
 namespace mobilinkd { namespace tnc {
 
@@ -123,7 +124,9 @@ float Fsk9600Demodulator::readTwist()
 
 uint32_t Fsk9600Demodulator::readBatteryLevel()
 {
-#ifndef NUCLEOTNC
+#if defined(STM32L4P5xx) || defined(STM32L4Q5xx)
+	return get_bat_level();
+#elif !(defined(NUCLEOTNC))
     TNC_DEBUG("enter Fsk9600Demodulator::readBatteryLevel");
 
     ADC_ChannelConfTypeDef sConfig;
@@ -134,7 +137,7 @@ uint32_t Fsk9600Demodulator::readBatteryLevel()
     sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
     sConfig.OffsetNumber = ADC_OFFSET_NONE;
     sConfig.Offset = 0;
-    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+    if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK)
         CxxErrorHandler();
 
     htim6.Init.Period = 48000;
@@ -143,10 +146,10 @@ uint32_t Fsk9600Demodulator::readBatteryLevel()
     if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
         CxxErrorHandler();
 
-    if (HAL_ADC_Start(&hadc1) != HAL_OK) CxxErrorHandler();
-    if (HAL_ADC_PollForConversion(&hadc1, 3) != HAL_OK) CxxErrorHandler();
-    auto vrefint = HAL_ADC_GetValue(&hadc1);
-    if (HAL_ADC_Stop(&hadc1) != HAL_OK) CxxErrorHandler();
+    if (HAL_ADC_Start(&BATTERY_ADC_HANDLE) != HAL_OK) CxxErrorHandler();
+    if (HAL_ADC_PollForConversion(&BATTERY_ADC_HANDLE, 3) != HAL_OK) CxxErrorHandler();
+    auto vrefint = HAL_ADC_GetValue(&BATTERY_ADC_HANDLE);
+    if (HAL_ADC_Stop(&BATTERY_ADC_HANDLE) != HAL_OK) CxxErrorHandler();
 
     // Disable battery charging while measuring battery voltage.
     auto usb_ce = gpio::USB_CE::get();

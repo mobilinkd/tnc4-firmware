@@ -54,12 +54,6 @@ void M17Demodulator::start()
     scale = 1.f / 32768.f * polarity;
     audio::virtual_ground = (VREF + 1) / 2;
 
-    hadc1.Init.OversamplingMode = ENABLE;
-    if (HAL_ADC_Init(&hadc1) != HAL_OK)
-    {
-        CxxErrorHandler();
-    }
-
     ADC_ChannelConfTypeDef sConfig;
 
     sConfig.Channel = AUDIO_IN;
@@ -68,7 +62,7 @@ void M17Demodulator::start()
     sConfig.SamplingTime = ADC_SAMPLETIME_12CYCLES_5;
     sConfig.OffsetNumber = ADC_OFFSET_NONE;
     sConfig.Offset = 0;
-    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+    if (HAL_ADC_ConfigChannel(&DEMODULATOR_ADC_HANDLE, &sConfig) != HAL_OK)
         CxxErrorHandler();
 
     startADC(999, ADC_BLOCK_SIZE);

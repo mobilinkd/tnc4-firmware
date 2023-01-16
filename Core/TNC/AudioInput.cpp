@@ -246,24 +246,27 @@ void streamLevels(uint8_t cmd) {
 
     // Stream out Vpp, Vavg, Vmin, Vmax as four 16-bit values, left justified.
 
+    constexpr uint32_t BLOCKS = 30;
+
     uint8_t data[9];
     INFO("streamLevels: start");
 
     auto demodulator = getDemodulator();
     demodulator->start();
+    const size_t audio_exponent = demodulator->get_adc_exponent();
 
     while (true) {
         osEvent peek = osMessagePeek(audioInputQueueHandle, 0);
         if (peek.status == osEventMessage) break;
 
-        uint16_t count = 0;
+        uint32_t count = 0;
         uint32_t accum = 0;
         uint16_t vmin = std::numeric_limits<uint16_t>::max();
         uint16_t vmax = std::numeric_limits<uint16_t>::min();
 
-        while (count < demodulator->size() * 30) {
-            osEvent evt = osMessageGet(adcInputQueueHandle, osWaitForever);
-            if (evt.status != osEventMessage) continue;
+        for (size_t i = 0; i != BLOCKS; ++i) {
+            osEvent evt = osMessageGet(adcInputQueueHandle, 1000);
+            if (evt.status != osEventMessage) break;
 
             count += demodulator->size();
 
@@ -278,10 +281,10 @@ void streamLevels(uint8_t cmd) {
             adcPool.deallocate(block);
         }
 
-        uint16_t pp = (vmax - vmin) << 4;
-        uint16_t avg = (accum / count) << 4;
-        vmin <<= 4;
-        vmax <<= 4;
+        uint16_t pp = (vmax - vmin) << audio_exponent;
+        uint16_t avg = (accum / count) << audio_exponent;
+        vmin <<= audio_exponent;
+        vmax <<= audio_exponent;
 
         data[0] = cmd;
         data[1] = (pp >> 8) & 0xFF;   // Vpp
@@ -395,7 +398,7 @@ void pollInputTwist()
 
     const uint32_t AVG_SAMPLES = 100;
 
-    IDemodulator::startADC(3029, TWIST_SAMPLE_SIZE);
+    IDemodulator::startADC(1817, TWIST_SAMPLE_SIZE);
 
     for (uint32_t i = 0; i != AVG_SAMPLES; ++i) {
 
@@ -454,10 +457,12 @@ void pollAmplifiedInputLevel() {
     uint16_t Vpp, Vavg, Vmin, Vmax;
     std::tie(Vpp, Vavg, Vmin, Vmax) = readLevels(AUDIO_IN);
 
-    Vpp <<= 4;
-    Vavg <<= 4;
-    Vmin <<= 4;
-    Vmax <<= 4;
+    const size_t audio_exponent = getDemodulator()->get_adc_exponent();
+
+    Vpp <<= audio_exponent;
+    Vavg <<= audio_exponent;
+    Vmin <<= audio_exponent;
+    Vmax <<= audio_exponent;
 
     uint8_t data[9];
     data[0] = kiss::hardware::POLL_INPUT_LEVEL;

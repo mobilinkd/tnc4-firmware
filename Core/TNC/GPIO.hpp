@@ -38,7 +38,8 @@ namespace gpio {
 
 typedef GPIO<(uint32_t)GPIOB_BASE,PTT_A_Pin> PTT_SIMPLEX;
 typedef GPIO<(uint32_t)GPIOB_BASE,PTT_B_Pin> PTT_MULTIPLEX;
-typedef GPIO<(uint32_t)GPIOC_BASE,USB_POWER_Pin> USB_POWER;
+typedef GPIO<(uint32_t)GPIOC_BASE,VDD_SENSE_Pin> VDD_SENSE;
+typedef GPIO<(uint32_t)GPIOA_BASE,GPIO_PIN_9> VUSB_SENSE;
 typedef GPIO<(uint32_t)GPIOC_BASE,SW_POWER_Pin> SW_POWER;
 typedef GPIO<(uint32_t)GPIOB_BASE,BT_RESET_Pin> BT_RESET;
 typedef GPIO<(uint32_t)GPIOC_BASE,BT_STATE1_Pin> BT_STATE1_IN;

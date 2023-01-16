@@ -1,4 +1,4 @@
-// Copyright 2017-2021 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2017-2022 Rob Riggs <rob@mobilinkd.com>
 // All rights reserved.
 
 #pragma once
@@ -6,6 +6,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+void indicate_ovp_error();
+void indicate_battery_low();
+void reset_indicator();
 
 void indicate_turning_on(void);
 void indicate_on(void);

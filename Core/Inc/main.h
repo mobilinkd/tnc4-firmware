@@ -38,7 +38,13 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-extern ADC_HandleTypeDef hadc2;
+
+typedef enum {
+	NOT_SHUTDOWN,		// Restarted while running.
+	WAKE_NORMAL,		// Shutdown with normal (button, OVP, or reset) wake up.
+	WAKE_USB_ON,		// Shutdown with normal and USB connect wake up.
+	SHUTDOWN_USB_OFF	// Shutdown with normal wake and USB disconnect shutdown.
+} ShutdownType;
 
 /* USER CODE END ET */
 
@@ -67,8 +73,8 @@ void Error_Handler(void);
 #define EEPROM_CAPACITY 4096
 #define EEPROM_PAGE_SIZE 32
 #define EEPROM_WRITE_TIME 5
-#define USB_POWER_Pin GPIO_PIN_13
-#define USB_POWER_GPIO_Port GPIOC
+#define VDD_SENSE_Pin GPIO_PIN_13
+#define VDD_SENSE_GPIO_Port GPIOC
 #define TCXO_IN_Pin GPIO_PIN_0
 #define TCXO_IN_GPIO_Port GPIOH
 #define TCXO_EN_Pin GPIO_PIN_1
@@ -119,6 +125,8 @@ void Error_Handler(void);
 #define LED_TX_GPIO_Port GPIOC
 #define VDD_EN_Pin GPIO_PIN_9
 #define VDD_EN_GPIO_Port GPIOC
+#define VUSB_SENSE_Pin GPIO_PIN_9
+#define VUSB_SENSE_GPIO_Port GPIOA
 #define BT_WAKE_Pin GPIO_PIN_12
 #define BT_WAKE_GPIO_Port GPIOC
 #define BT_SLEEP_Pin GPIO_PIN_2
@@ -131,16 +139,65 @@ void Error_Handler(void);
 #define BT_RESET_GPIO_Port GPIOB
 #define SW_BOOT_Pin GPIO_PIN_3
 #define SW_BOOT_GPIO_Port GPIOH
+void   MX_GPIO_Init(void);
+void   MX_DMA_Init(void);
+void   MX_ADC2_Init(void);
+void   MX_COMP1_Init(void);
+void   MX_CRC_Init(void);
+void   MX_DAC1_Init(void);
+void   MX_OPAMP1_Init(void);
+void   MX_OPAMP2_Init(void);
+void   MX_RNG_Init(void);
+void   MX_TIM6_Init(void);
+void   MX_TIM7_Init(void);
+void   MX_TIM8_Init(void);
+void   MX_USART3_UART_Init(void);
+void   MX_I2C1_Init(void);
+void   MX_IWDG_Init(void);
+void   MX_RTC_Init(void);
+void   MX_ADC1_Init(void);
 /* USER CODE BEGIN Private defines */
 #define BT_STATE1_EXTI_IRQn EXTI0_IRQn
 #define BT_STATE2_EXTI_IRQn EXTI1_IRQn
 #define OVP_ERROR_EXTI_IRQn EXTI2_IRQn
 #define SW_BOOT_EXTI_IRQn EXTI3_IRQn
-#define USB_POWER_EXTI_IRQn EXTI15_10_IRQn
+#define VDD_SENSE_EXTI_IRQn EXTI15_10_IRQn
 #define SW_POWER_EXTI_IRQn EXTI9_5_IRQn
+#define VUSB_SENSE_EXTI_IRQn EXTI9_5_IRQn
+
+#define USBD_MAX_POWER 0xFAU  /* 500 mA */
+
+// Backup domain registers
+#define BKUP_TNC_LOWPOWER_STATE	TAMP->BKP0R			/* TNC state when entering low-power mode */
+#define BKUP_BT_EEPROM_CRC		TAMP->BKP1R 		/* Bluetooth module EEPROM CRC */
+#define BKUP_MAC_ADDRESS_1		TAMP->BKP2R 		/* Bluetooth module MAC address OUI part */
+#define BKUP_MAC_ADDRESS_2		TAMP->BKP3R 		/* Bluetooth module MAC address device ID part */
+#define BKUP_POWER_CONFIG		TAMP->BKP4R 		/* Power configuration from EEPROM */
+
+#define TNC_LOWPOWER_SHUTDOWN 	0x00000001
+#define TNC_LOWPOWER_STOP2 		0x00000002
+#define TNC_LOWPOWER_STOP1 		0x00000004
+#define TNC_LOWPOWER_VUSB 		0x00000008
+#define TNC_LOWPOWER_VBAT		0x00000010
+#define TNC_LOWPOWER_LOW_BAT 	0x00000020
+#define TNC_LOWPOWER_OVP		0x00000040
+#define TNC_LOWPOWER_ENTER_STOP 0x00000080
+
+#define POWER_CONFIG_WAKE_FROM_USB	0x00000001
+#define POWER_CONFIG_SLEEP_ON_USB	0x00000002
+
+typedef enum {
+	RESET_CAUSE_UNKNOWN,
+	RESET_CAUSE_SOFT,	// Software reset
+	RESET_CAUSE_HARD,	// Reset button
+	RESET_CAUSE_BOR,	// Brown-out reset
+	RESET_CAUSE_WUF,	// GPIO wake-up
+	RESET_CAUSE_WUTF	// Timer wake-up
+} ResetCause;
 
 // Compatibility defines
-#define BATTERY_ADC_HANDLE hadc2
+#define DEMODULATOR_ADC_HANDLE hadc2
+#define BATTERY_ADC_HANDLE hadc1
 #define BATTERY_ADC_CHANNEL ADC_CHANNEL_16
 #define LED_PWM_TIMER_HANDLE htim8
 #define EEPROM_I2C hi2c1
@@ -149,7 +206,7 @@ void Error_Handler(void);
 #define USB_CE_Pin GPIO_PIN_4
 #define USB_CE_GPIO_Port GPIOB
 
-// #define TNC_HAS_LSCO -- Not available on TNC3+, use MCO instead.
+// #define TNC_HAS_LSCO -- Not available on TNC4, use MCO instead.
 #define TNC_HAS_SWO
 #define TNC_HAS_LSE
 #define TNC_HAS_HSE
@@ -166,7 +223,6 @@ void Error_Handler(void);
 #define CMD_BOOT_BUTTON_UP 6
 #define CMD_BT_CONNECT 7
 #define CMD_BT_DISCONNECT 8
-#define CMD_BT_CONNECT 7
 #define CMD_SET_PTT_SIMPLEX 9
 #define CMD_SET_PTT_MULTIPLEX 10
 #define CMD_SHUTDOWN 11
@@ -193,6 +249,12 @@ void Error_Handler(void);
 #define CMD_OVP_ERROR 27
 #define CMD_NO_OVP_ERROR 28
 
+#define CMD_USB_CHARGER_CONNECTED 29
+#define CMD_USB_HOST_CONNECTED 30
+#define CMD_USB_HOST_ENUMERATED 31
+
+#define CMD_AUDIO_INIT_COMPLETE 32
+
 extern int reset_requested;
 extern char serial_number_64[13];
 extern uint8_t mac_address[6];
@@ -201,7 +263,11 @@ extern int go_back_to_sleep;
 extern int usb_wake_state;
 extern int charging_enabled;
 extern int reset_button;
+extern int stop_now;
 extern osMutexId hardwareInitMutexHandle;
+extern ADC_HandleTypeDef hadc2;
+extern int bt_connected;
+
 
 #define CxxErrorHandler() _Error_Handler(const_cast<char*>(__FILE__), __LINE__)
 
@@ -211,10 +277,12 @@ extern osMutexId hardwareInitMutexHandle;
 
 void _Error_Handler(char *, int) __attribute__ ((noreturn));
 
+void SystemClock_Config(void);
 void SysClock48(void);
 void SysClock72(void);
 void SysClock80(void);
 void SysClock4(void);
+void SysClock2(void);
 void error_code(int8_t a, int8_t b);
 
 #ifdef __cplusplus
@@ -230,5 +298,3 @@ void error_code(int8_t a, int8_t b);
 #endif
 
 #endif /* __MAIN_H */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

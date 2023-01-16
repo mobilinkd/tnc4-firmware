@@ -18,6 +18,7 @@
 #include "M17Framer.h"
 #include "Modulator.hpp"
 #include "ModulatorTask.hpp"
+#include "power.h"
 #include "Util.h"
 
 #include <arm_math.h>
@@ -44,8 +45,8 @@ struct M17Demodulator : IDemodulator
     static constexpr float sample_rate = SAMPLE_RATE;
     static constexpr float symbol_rate = SYMBOL_RATE;
 
-    static constexpr int STREAM_COST_LIMIT = 80;
-    static constexpr int PACKET_COST_LIMIT = 60;
+    static constexpr int STREAM_COST_LIMIT = 50;
+    static constexpr int PACKET_COST_LIMIT = 40;
     static constexpr uint8_t MAX_MISSING_SYNC = 10;
     static constexpr uint8_t MIN_SYNC_COUNT = 78;
     static constexpr uint8_t MAX_SYNC_COUNT = 87;
@@ -90,6 +91,7 @@ struct M17Demodulator : IDemodulator
 
 
     virtual ~M17Demodulator() {}
+    size_t get_adc_exponent() const override { return 2; }
 
     void start() override;
 
@@ -144,7 +146,9 @@ struct M17Demodulator : IDemodulator
 
     uint32_t readBatteryLevel() override
     {
-#ifndef NUCLEOTNC
+#if defined(STM32L4P5xx) || defined(STM32L4Q5xx)
+    	return get_bat_level();
+#elif !(defined(NUCLEOTNC))
         TNC_DEBUG("enter M17Demodulator::readBatteryLevel");
 
         ADC_ChannelConfTypeDef sConfig;
@@ -155,7 +159,7 @@ struct M17Demodulator : IDemodulator
         sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
         sConfig.OffsetNumber = ADC_OFFSET_NONE;
         sConfig.Offset = 0;
-        if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+        if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK)
             CxxErrorHandler();
 
         htim6.Init.Period = 48000;
@@ -164,10 +168,10 @@ struct M17Demodulator : IDemodulator
         if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
             CxxErrorHandler();
 
-        if (HAL_ADC_Start(&hadc1) != HAL_OK) CxxErrorHandler();
-        if (HAL_ADC_PollForConversion(&hadc1, 3) != HAL_OK) CxxErrorHandler();
-        auto vrefint = HAL_ADC_GetValue(&hadc1);
-        if (HAL_ADC_Stop(&hadc1) != HAL_OK) CxxErrorHandler();
+        if (HAL_ADC_Start(&BATTERY_ADC_HANDLE) != HAL_OK) CxxErrorHandler();
+        if (HAL_ADC_PollForConversion(&BATTERY_ADC_HANDLE, 3) != HAL_OK) CxxErrorHandler();
+        auto vrefint = HAL_ADC_GetValue(&BATTERY_ADC_HANDLE);
+        if (HAL_ADC_Stop(&BATTERY_ADC_HANDLE) != HAL_OK) CxxErrorHandler();
 
         // Disable battery charging while measuring battery voltage.
         auto usb_ce = gpio::USB_CE::get();

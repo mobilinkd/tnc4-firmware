@@ -12,6 +12,7 @@
 
 #include <array>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 
 namespace mobilinkd { namespace tnc {
@@ -41,8 +42,8 @@ struct M17Modulator : Modulator
     osMessageQId dacOutputQueueHandle_{0};
     PTT* ptt_{nullptr};
     uint16_t volume_{4096};
-    volatile uint16_t delay_count = 0;      // TX Delay
-    volatile uint16_t stop_count = 0;       // Flush the RRC matched filter.
+    std::atomic<uint16_t> delay_count = 0;      // TX Delay
+    std::atomic<uint16_t> stop_count = 0;       // Flush the RRC matched filter.
     State state{State::STOPPED};
     float tmp[TRANSFER_LEN];
     bool send_tone = false;

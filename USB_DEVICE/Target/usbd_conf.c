@@ -29,6 +29,7 @@
 /* USER CODE BEGIN Includes */
 #include "cmsis_os.h"
 #include "Log.h"
+#include "power.h"
 
 /* USER CODE END Includes */
 
@@ -73,23 +74,28 @@ extern void SystemClock_Config(void);
 void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
   if(pcdHandle->Instance==USB_OTG_FS)
   {
   /* USER CODE BEGIN USB_OTG_FS_MspInit 0 */
+	  pcdHandle->Init.battery_charging_enable = 1;
 
   /* USER CODE END USB_OTG_FS_MspInit 0 */
 
+  /** Initializes the peripherals clock
+  */
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+    PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_HSI48;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
     __HAL_RCC_GPIOA_CLK_ENABLE();
     /**USB_OTG_FS GPIO Configuration
-    PA9     ------> USB_OTG_FS_VBUS
     PA11     ------> USB_OTG_FS_DM
     PA12     ------> USB_OTG_FS_DP
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_9;
-    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
     GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -132,11 +138,10 @@ void HAL_PCD_MspDeInit(PCD_HandleTypeDef* pcdHandle)
     __HAL_RCC_USB_OTG_FS_CLK_DISABLE();
 
     /**USB_OTG_FS GPIO Configuration
-    PA9     ------> USB_OTG_FS_VBUS
     PA11     ------> USB_OTG_FS_DM
     PA12     ------> USB_OTG_FS_DP
     */
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9|GPIO_PIN_11|GPIO_PIN_12);
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_11|GPIO_PIN_12);
 
     /* Disable VDDUSB */
     if(__HAL_RCC_PWR_IS_CLK_DISABLED())
@@ -253,6 +258,7 @@ static void PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
+	INFO("HAL_PCD_SuspendCallback");
   __HAL_PCD_GATE_PHYCLOCK(hpcd);
   /* Inform USB library that core enters in suspend Mode. */
   USBD_LL_Suspend((USBD_HandleTypeDef*)hpcd->pData);
@@ -263,7 +269,7 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
 	 osMessagePut(ioEventQueueHandle, CMD_USB_SUSPEND, 0);
 
     /* Set SLEEPDEEP bit and SleepOnExit of Cortex System Control Register. */
-    SCB->SCR |= (uint32_t)((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
+    // SCB->SCR |= (uint32_t)((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
   }
   /* USER CODE END 2 */
 }
@@ -280,15 +286,17 @@ static void PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
 void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
+	INFO("HAL_PCD_ResumeCallback");
   __HAL_PCD_UNGATE_PHYCLOCK(hpcd);
 
   /* USER CODE BEGIN 3 */
   if (hpcd->Init.low_power_enable)
   {
     /* Reset SLEEPDEEP bit of Cortex System Control Register. */
-    SCB->SCR &= (uint32_t)~((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
-    SystemClockConfig_Resume();
-    osMessagePut(ioEventQueueHandle, CMD_USB_RESUME, 0);
+    // SCB->SCR &= (uint32_t)~((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
+    // SystemClockConfig_Resume();
+	  osMessagePut(ioEventQueueHandle, CMD_USB_RESUME, 0);
+	  usb_resume = 1;
   }
   /* USER CODE END 3 */
   USBD_LL_Resume((USBD_HandleTypeDef*)hpcd->pData);
@@ -378,7 +386,7 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   hpcd_USB_OTG_FS.Init.lpm_enable = DISABLE;
   hpcd_USB_OTG_FS.Init.battery_charging_enable = ENABLE;
   hpcd_USB_OTG_FS.Init.use_dedicated_ep1 = DISABLE;
-  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = ENABLE;
+  hpcd_USB_OTG_FS.Init.vbus_sensing_enable = DISABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_FS) != HAL_OK)
   {
     Error_Handler( );
@@ -704,7 +712,6 @@ USBD_StatusTypeDef USBD_LL_SetUSBAddress(USBD_HandleTypeDef *pdev, uint8_t dev_a
 
   switch (hal_status) {
     case HAL_OK :
-      osMessagePut(ioEventQueueHandle, CMD_USB_SUSPEND, 0);
       usb_status = USBD_OK;
     break;
     case HAL_ERROR :
@@ -794,10 +801,10 @@ USBD_StatusTypeDef USBD_LL_PrepareReceive(USBD_HandleTypeDef *pdev, uint8_t ep_a
 }
 
 /**
-  * @brief  Returns the last transfered packet size.
+  * @brief  Returns the last transferred packet size.
   * @param  pdev: Device handle
   * @param  ep_addr: Endpoint number
-  * @retval Recived Data Size
+  * @retval Received Data Size
   */
 uint32_t USBD_LL_GetRxDataSize(USBD_HandleTypeDef *pdev, uint8_t ep_addr)
 {
@@ -827,6 +834,7 @@ void HAL_PCDEx_LPM_Callback(PCD_HandleTypeDef *hpcd, PCD_LPM_MsgTypeDef msg)
     break;
 
   case PCD_LPM_L1_ACTIVE:
+	  INFO("PCD_LPM_L1_ACTIVE");
     __HAL_PCD_GATE_PHYCLOCK(hpcd);
     USBD_LL_Suspend(hpcd->pData);
 
@@ -838,59 +846,6 @@ void HAL_PCDEx_LPM_Callback(PCD_HandleTypeDef *hpcd, PCD_LPM_MsgTypeDef msg)
     }
     break;
   }
-}
-/**
-  * @brief  Send BCD message to user layer
-  * @param  hpcd: PCD handle
-  * @param  msg: LPM message
-  * @retval None
-  */
-void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeDef msg)
-{
-    UNUSED(hpcd);
-    // USBD_HandleTypeDef usbdHandle = hUsbDeviceFS;
-
-  static int downstream_port = 0;
-
-  /* USER CODE BEGIN 7 */
-    switch(msg)
-    {
-      case PCD_BCD_CONTACT_DETECTION:
-          downstream_port = 0;
-          break;
-
-      case PCD_BCD_STD_DOWNSTREAM_PORT:
-          // Only charge after negotiation
-          TNC_DEBUG("Detected standard downstream USB port");
-          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
-          downstream_port = 1;
-          break;
-
-      case PCD_BCD_CHARGING_DOWNSTREAM_PORT:
-          TNC_DEBUG("Detected charging downstream USB port");
-          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
-          downstream_port = 1;
-          break;
-
-      case PCD_BCD_DEDICATED_CHARGING_PORT:
-          TNC_DEBUG("Detected dedicated charging port");
-          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
-          downstream_port = 0;
-          break;
-
-      case PCD_BCD_DISCOVERY_COMPLETED:
-          if (downstream_port) {
-              osMessagePut(ioEventQueueHandle, CMD_USB_DISCOVERY_COMPLETE, 0);
-          }
-          break;
-
-      case PCD_BCD_ERROR:
-          osMessagePut(ioEventQueueHandle, CMD_USB_DISCOVERY_ERROR, 0);
-          break;
-      default:
-      break;
-    }
-  /* USER CODE END 7 */
 }
 
 /**
@@ -936,4 +891,3 @@ static void SystemClockConfig_Resume(void)
 }
 /* USER CODE END 5 */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

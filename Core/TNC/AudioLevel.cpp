@@ -156,9 +156,7 @@ void setAudioInputLevels()
     INFO("Setting input gain: %d", kiss::settings().input_gain);
     set_input_gain(kiss::settings().input_gain);
 
-    indicate_turning_on();
-    osDelay(5000); // Delay for 5 seconds for DC level to settle.
-    indicate_on();
+    osDelay(1000); // Delay for 5 seconds for DC level to settle.
 
     uint16_t vpp, vavg, vmin, vmax;
 

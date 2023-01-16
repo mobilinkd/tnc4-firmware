@@ -19,6 +19,7 @@
 #include "LEDIndicator.h"
 #include "bm78.h"
 #include "KissHardware.h"
+#include "power.h"
 
 #include "stm32l4xx_hal.h"
 #include "usbd_cdc_if.h"
@@ -27,6 +28,8 @@
 #include "cmsis_os.h"
 
 extern osMessageQId hdlcOutputQueueHandle;
+extern I2C_HandleTypeDef hi2c1;
+extern UART_HandleTypeDef huart3;
 
 #ifdef STM32L4P5xx
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
@@ -39,11 +42,10 @@ extern PCD_HandleTypeDef hpcd_USB_FS;
 extern osTimerId usbShutdownTimerHandle;
 extern IWDG_HandleTypeDef hiwdg;
 
-extern "C" void stop2(void);
-extern "C" void shutdown(void const * argument);
+extern "C" void usbShutdownTimerCallback(void const * argument);
 extern "C" void startLedBlinkerTask(void const*);
 
-volatile int cdc_connected{0};
+volatile ConnectionState connectionState = ConnectionState::DISCONNECTED;
 
 static PTT getPttStyle(const mobilinkd::tnc::kiss::Hardware& hardware)
 {
@@ -54,11 +56,25 @@ void startIOEventTask(void const*)
 {
     using namespace mobilinkd::tnc;
 
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    /* Configure GPIO pin : VUSB_SENSE for input so it can be read. */
+    GPIO_InitStruct.Pin = VUSB_SENSE_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(VUSB_SENSE_GPIO_Port, &GPIO_InitStruct);
+
+    INFO("GPIOA = 0x%04lx", GPIOA->IDR);
+    powerState = (GPIOA->IDR & GPIO_PIN_9) ? PowerState::POWER_STATE_VBUS : PowerState::POWER_STATE_VBAT;
+
     if (!go_back_to_sleep) {
         indicate_on();
 
         print_startup_banner();
     }
+
+    MX_I2C1_Init();
 
     auto& hardware = kiss::settings();
 
@@ -72,65 +88,61 @@ void startIOEventTask(void const*)
         hardware.store();
     }
 
+    HAL_I2C_DeInit(&hi2c1);
+
+    if (powerState == PowerState::POWER_STATE_VBUS)
+    {
+        INFO("VBUS detected");
+        HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
+        HAL_PCDEx_ActivateBCD(&hpcd_USB_OTG_FS);
+        HAL_PCDEx_BCD_VBUSDetect(&hpcd_USB_OTG_FS);
+    } else {
+  	    INFO("VBUS not detected");
+    }
+
     osMutexRelease(hardwareInitMutexHandle);
 
     if (!go_back_to_sleep) {
+    	bt_connected = 0;
+
+        HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
+        bm78_wait_until_ready();
 
         hardware.debug();
 
-        audio::init_log_volume();
-        audio::setAudioOutputLevel();
-        audio::setAudioInputLevels();
+        initialize_audio();
         setPtt(getPttStyle(hardware));
+        indicate_waiting_to_connect();
 
-        // Cannot enable these interrupts until we start the io loop because
-        // they send messages on the queue.
-        HAL_NVIC_SetPriority(SW_POWER_EXTI_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(SW_POWER_EXTI_IRQn);
+        if (powerState != PowerState::POWER_STATE_VBUS) SysClock2();
 
-        HAL_NVIC_SetPriority(SW_BOOT_EXTI_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(SW_BOOT_EXTI_IRQn);
-
-        HAL_NVIC_SetPriority(BT_STATE1_EXTI_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(BT_STATE1_EXTI_IRQn);
-
-        HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
-
-#ifdef OVP_ERROR_EXTI_IRQn
-        HAL_NVIC_SetPriority(OVP_ERROR_EXTI_IRQn, 6, 0);
-        HAL_NVIC_EnableIRQ(OVP_ERROR_EXTI_IRQn);
-#endif
-
-        // FIXME: this is probably not right
+        // Should never be BT connected; force a disconnect if it is.
         if (HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin) == GPIO_PIN_RESET)
         {
-            TNC_DEBUG("BT Connected at start");
-            openSerial();
-            INFO("BT Opened");
-            indicate_connected_via_ble();
+            WARN("BT Connected at start");
+            HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET);
+            HAL_Delay(1);
+            HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET);
+            bm78_wait_until_ready();
         }
-        else
-        {
-            indicate_waiting_to_connect();
-        }
+        enable_interrupts();
+		configure_power_on_disconnect();
     } else {
         if (!usb_wake_state) {
             TNC_DEBUG("USB disconnected -- shutdown");
-            shutdown(0);
+            shutdown(TNC_LOWPOWER_VBAT);
         } else {
             TNC_DEBUG("USB connected -- negotiate");
+            // Don't allow BT to connect.
             HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin,
                 GPIO_PIN_RESET);
             osTimerStart(usbShutdownTimerHandle, 5000);
         }
     }
 
-    HAL_NVIC_SetPriority(USB_POWER_EXTI_IRQn, 6, 0);
-    HAL_NVIC_EnableIRQ(USB_POWER_EXTI_IRQn);
-
     uint32_t power_button_counter{0};
     uint32_t power_button_duration{0};
+    uint32_t start{0};
 
     /* Infinite loop */
     for (;;)
@@ -148,55 +160,76 @@ void startIOEventTask(void const*)
         {
             switch (cmd) {
             case CMD_USB_CDC_CONNECT:
-                if (!cdc_connected && openCDC())
+                if ((connectionState == ConnectionState::DISCONNECTED) && openCDC())
                 {
-                    cdc_connected = true;
+                	connectionState = ConnectionState::USB_CONNECTED;
                     // Disable Bluetooth Module
                     HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
                     HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
-                    HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin,
-                        GPIO_PIN_RESET);
+                    HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET);
+
                     INFO("CDC Opened");
+                    configure_power_on_connect();
+                    getModulator().init(hardware);	// Need to re-init modulator after reconfig.
                     indicate_connected_via_usb();
                     osMessagePut(audioInputQueueHandle,
                         audio::DEMODULATOR, osWaitForever);
                 }
                 break;
+            case CMD_USB_CONNECTED:
+                INFO("VBUS Detected");
+                powerState = POWER_STATE_VBUS;
+                if (SystemCoreClock < 48000000) SysClock48();
+            	HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
+                HAL_PCDEx_ActivateBCD(&HPCD);
+                HAL_PCDEx_BCD_VBUSDetect(&HPCD);
+                break;
+            case CMD_USB_RESUME:
+                INFO("USB resume");
+            	if (charging_enabled)
+            		HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
+                break;
+            case CMD_USB_SUSPEND:
+                INFO("USB suspend");
+            	if (charging_enabled)
+            		HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_SET);
+            	break;
             case CMD_USB_DISCONNECTED:
                 INFO("VBUS Lost");
-                charging_enabled = 0;
-                if (powerOffViaUSB()) {
-                    shutdown(0); // ***NO RETURN***
-                } else {
+                USBD_Stop(&hUsbDeviceFS);
 #ifdef STM32L433xx
                     HPCD.Instance->BCDR = 0;
 #endif
-//                    HAL_PCD_MspDeInit(&HPCD);
-                    HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_SET);
-//                    SysClock4();
-                    if (ioport != getUsbPort())
-                    {
-                        break;
-                    }
+                HAL_PCD_MspDeInit(&hpcd_USB_OTG_FS);
+                HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_SET);
+                powerState = POWER_STATE_VBAT;
+                charging_enabled = 0;
+                if (powerOffViaUSB()) {
+                    stop2(TNC_LOWPOWER_VBAT); // ***NO RETURN***
+                } else if (connectionState == ConnectionState::DISCONNECTED) {
+                    SysClock2();
+                    break;
+                } else if (connectionState == ConnectionState::BT_CONNECTED) {
+                	break;
                 }
             [[ fallthrough ]]; // when the CDC part was connected.
             case CMD_USB_CDC_DISCONNECT:
-                if (cdc_connected) {
-                    cdc_connected = false;
-                    osMessagePut(audioInputQueueHandle, audio::IDLE,
-                        osWaitForever);
+            	INFO("CDC Disconnect");
+                if (connectionState == ConnectionState::USB_CONNECTED) {
+                	connectionState = ConnectionState::DISCONNECTED;
+                    osMessagePut(audioInputQueueHandle, audio::IDLE, osWaitForever);
                     kiss::getAFSKTestTone().stop();
                     closeCDC();
                     INFO("CDC Closed");
 
                     // Enable Bluetooth Module
-                    HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin,
-                        GPIO_PIN_SET);
+                    HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
                     bm78_wait_until_ready();
 
                     HAL_NVIC_EnableIRQ(BT_STATE1_EXTI_IRQn);
                     HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
+                	configure_power_on_disconnect();
                     indicate_waiting_to_connect();
                 }
                 break;
@@ -208,11 +241,34 @@ void startIOEventTask(void const*)
                     osWaitForever);
                 break;
             case CMD_POWER_BUTTON_UP:
-                TNC_DEBUG("Power Up");
+            	INFO("Power Up");
                 if (power_button_counter == 0) break; // reset_requested
                 power_button_duration = osKernelSysTick() - power_button_counter;
-                TNC_DEBUG("Button pressed for %lums", power_button_duration);
-                shutdown(0); // ***NO RETURN***
+                INFO("Button pressed for %lums", power_button_duration);
+                vTaskSuspendAll();
+                indicate_turning_off();
+                HAL_Delay(2001);
+                if (powerState == POWER_STATE_VBUS_HOST) {
+                	stop2(powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB);
+                } else {
+                	stop2(powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB);
+                	// shutdown(powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB); // ***NO RETURN***
+                }
+
+            	xTaskResumeAll();
+
+            	if (!go_back_to_sleep) {
+            		indicate_turning_on();
+            		initialize_audio();
+            		bt_connected = 0;
+            		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
+            		bm78_wait_until_ready();
+            		enable_interrupts();
+            		configure_power_on_disconnect();
+            		indicate_waiting_to_connect();
+            		SysClock2();
+            	}
+
                 break;
             case CMD_BOOT_BUTTON_DOWN:
                 TNC_DEBUG("BOOT Down");
@@ -220,7 +276,7 @@ void startIOEventTask(void const*)
                 // held so it will boot into the bootloader.  This is a bit
                 // of a hack, since we really should check if the port is a
                 // standard USB port and not just a charging port.
-                if (gpio::USB_POWER::get() and ioport == getNullPort())
+                if (gpio::VUSB_SENSE::get() and ioport == getNullPort())
                 {
                     HAL_NVIC_SystemReset();
                 }
@@ -245,22 +301,26 @@ void startIOEventTask(void const*)
                 TNC_DEBUG("BT Connect");
                 if (openSerial())
                 {
-                    osMessagePut(audioInputQueueHandle,
-                        audio::DEMODULATOR, osWaitForever);
+                    configure_power_on_connect();
+                    HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
                     INFO("BT Opened");
                     indicate_connected_via_ble();
-                    HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
+                    getModulator().init(hardware);	// Need to re-init modulator after reconfig.
+                    osMessagePut(audioInputQueueHandle,
+                        audio::DEMODULATOR, osWaitForever);
                 }
                 break;
             case CMD_BT_DISCONNECT:
                 INFO("BT Disconnect");
                 closeSerial();
-                indicate_waiting_to_connect();
                 HAL_PCD_EP_ClrStall(&HPCD, CDC_CMD_EP);
                 osMessagePut(audioInputQueueHandle, audio::IDLE,
                     osWaitForever);
                 kiss::getAFSKTestTone().stop();
                 INFO("BT Closed");
+                if (powerState == POWER_STATE_VBAT || powerState == POWER_STATE_VBUS_CHARGER) SysClock2();
+            	configure_power_on_disconnect();
+                indicate_waiting_to_connect();
                 break;
             case CMD_SET_PTT_SIMPLEX:
                 getModulator().set_ptt(&simplexPtt);
@@ -270,7 +330,8 @@ void startIOEventTask(void const*)
                 break;
             case CMD_SHUTDOWN:
                 INFO("STOP mode");
-                shutdown(0);
+                stop2(powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB);
+                // shutdown(powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB);
                 INFO("RUN mode");
                 HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
                 audio::setAudioOutputLevel();
@@ -286,48 +347,53 @@ void startIOEventTask(void const*)
                 HAL_NVIC_SetPriority(SW_BOOT_EXTI_IRQn, 6, 0);
                 HAL_NVIC_EnableIRQ(SW_BOOT_EXTI_IRQn);
 
-                HAL_NVIC_SetPriority(USB_POWER_EXTI_IRQn, 6, 0);
-                HAL_NVIC_EnableIRQ(USB_POWER_EXTI_IRQn);
-
                 HAL_NVIC_SetPriority(SW_POWER_EXTI_IRQn, 6, 0);
                 HAL_NVIC_EnableIRQ(SW_POWER_EXTI_IRQn);
 
-                break;
-            case CMD_USB_CONNECTED:
-                INFO("VBUS Detected");
-//                SysClock48();
-//                MX_USB_DEVICE_Init();
-//                HAL_PCD_MspInit(&HPCD);
-#ifdef STM32L433xx
-                HPCD.Instance->BCDR = 0;
-#endif
-                HAL_PCDEx_ActivateBCD(&HPCD);
-                HAL_PCDEx_BCD_VBUSDetect(&HPCD);
                 break;
             case CMD_USB_CHARGE_ENABLE:
                 INFO("USB charging enabled");
                 HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
                 charging_enabled = 1;
-                if (go_back_to_sleep) shutdown(0);
+                if (go_back_to_sleep) shutdown(TNC_LOWPOWER_VUSB);
                 break;
             case CMD_USB_DISCOVERY_COMPLETE:
                 INFO("USB discovery complete");
                 osTimerStop(usbShutdownTimerHandle);
-                USBD_Start(&hUsbDeviceFS);
+                if (!go_back_to_sleep) MX_USB_DEVICE_Init();
                 initCDC();
                 break;
+            case CMD_USB_CHARGER_CONNECTED:
+            	INFO("USB charger connected");
+            	powerState = POWER_STATE_VBUS_CHARGER;
+                HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
+                charging_enabled = 1;
+                if (go_back_to_sleep) stop2(TNC_LOWPOWER_VUSB);
+            	break;
+            case CMD_USB_HOST_CONNECTED:
+            	INFO("USB host connected");
+            	powerState = POWER_STATE_VBUS;
+            	break;
+            case CMD_USB_HOST_ENUMERATED:
+            	INFO("USB host enumerated");
+            	powerState = POWER_STATE_VBUS_HOST;
+                HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
+                charging_enabled = 1;
+                if (go_back_to_sleep) stop2(TNC_LOWPOWER_VUSB);
+            	break;
             case CMD_USB_DISCOVERY_ERROR:
-                // This happens when powering VBUS from a bench supply.
+                // This happens when powering VUSB from a bench supply.
                 osTimerStop(usbShutdownTimerHandle);
                 HAL_PCDEx_DeActivateBCD(&HPCD);
-                if (HAL_GPIO_ReadPin(USB_POWER_GPIO_Port, USB_POWER_Pin) == GPIO_PIN_SET)
+                if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9) == GPIO_PIN_SET)
                 {
                     INFO("Not a recognized USB charging device");
                     INFO("USB charging enabled");
+                    powerState = POWER_STATE_VBUS_CHARGER;
                     HAL_GPIO_WritePin(USB_CE_GPIO_Port, USB_CE_Pin, GPIO_PIN_RESET);
                     charging_enabled = 1;
                 }
-                if (go_back_to_sleep) shutdown(0);
+                if (go_back_to_sleep) shutdown(powerState);
                 break;
             case CMD_BT_DEEP_SLEEP:
                 INFO("BT deep sleep");
@@ -341,11 +407,12 @@ void startIOEventTask(void const*)
             case CMD_BT_IDLE:
                 INFO("BT idle");
                 break;
-            case CMD_USB_SUSPEND:
-                INFO("USB suspend");
+            case CMD_OVP_ERROR:
+            	// There is a 100ms OVP error glitch when USB is disconnected.
+                INFO("OVP Error");
                 break;
-            case CMD_USB_RESUME:
-                INFO("USB resume");
+            case CMD_NO_OVP_ERROR:
+                INFO("End OVP Error");
                 break;
             default:
                 WARN("unknown command = %04x", static_cast<unsigned int>(cmd));

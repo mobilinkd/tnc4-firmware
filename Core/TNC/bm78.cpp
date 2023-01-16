@@ -483,7 +483,9 @@ void bm78_wait_until_ready()
     do {
         if (HAL_GetTick() > start + 2000) CxxErrorHandler(); // Timed out.
 
-        HAL_Delay(100);
+        __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE2_Pin);
+        __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE1_Pin);
+        HAL_Delay(1);
         bt_state2 = HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
         bt_state1 = HAL_GPIO_ReadPin(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
         TNC_DEBUG("bt_state2=%d, bt_state1=%d", bt_state2, bt_state1);
@@ -515,7 +517,7 @@ int bm78_initialized()
 
     auto crc = eeprom_crc();
 
-    return HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == crc;
+    return READ_REG(BKUP_BT_EEPROM_CRC) == crc;
 }
 
 void bm78_initialize_mac_address()
@@ -545,7 +547,7 @@ int bm78_initialize()
         /* Write CRC to RTC back-up register RTC_BKP_DR1 to indicate
            that the BM78 module has been initialized.  */
         HAL_PWR_EnableBkUpAccess();
-        HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, eeprom_crc());
+        WRITE_REG(BKUP_BT_EEPROM_CRC, eeprom_crc());
         HAL_PWR_DisableBkUpAccess();
     }
 #endif

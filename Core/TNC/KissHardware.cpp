@@ -50,7 +50,7 @@ const char FIRMWARE_VERSION[] = "2.4.4";
 const char HARDWARE_VERSION[] = "Mobilinkd TNC3 2.1.1";
 #elif defined(STM32L4P5xx)
 const char FIRMWARE_VERSION[] = "2.4.4";
-const char HARDWARE_VERSION[] = "Mobilinkd TNC3+ Rev A";
+const char HARDWARE_VERSION[] = "Mobilinkd TNC4 Rev B";
 #endif
 
 Hardware& settings()

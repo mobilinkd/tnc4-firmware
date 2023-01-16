@@ -39,6 +39,17 @@
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
 
+#define MORSE_0 0x00
+#define MORSE_1 0x10
+#define MORSE_2 0x18
+#define MORSE_3 0x1C
+#define MORSE_4 0x1E
+#define MORSE_5 0x1F
+#define MORSE_6 0x0F
+#define MORSE_7 0x07
+#define MORSE_8 0x03
+#define MORSE_9 0x01
+
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
@@ -68,6 +79,9 @@ void OTG_FS_IRQHandler(void);
 void DMAMUX1_OVR_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
+void delay(uint32_t ms);
+void error_code(int8_t a, int8_t b);
+
 void EXTI0_IRQHandler(void);
 void EXTI1_IRQHandler(void);
 void EXTI2_IRQHandler(void);
@@ -82,5 +96,3 @@ void EXTI15_10_IRQHandler(void);
 #endif
 
 #endif /* __STM32L4xx_IT_H */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

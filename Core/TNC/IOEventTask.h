@@ -5,16 +5,18 @@
 
 #include "cmsis_os.h"
 
+extern osMessageQId ioEventQueueHandle;
+
+#ifndef NUCLEOTNC
+typedef enum ConnectionState {DISCONNECTED, USB_CONNECTED, BT_CONNECTED} ConnectionStateType;
+extern volatile ConnectionStateType connectionState;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 void startIOEventTask(void const* argument);
-
-extern osMessageQId ioEventQueueHandle;
-#ifndef NUCLEOTNC
-extern volatile int cdc_connected;
-#endif
 
 #ifdef __cplusplus
 }

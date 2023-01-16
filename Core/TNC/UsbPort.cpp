@@ -151,8 +151,13 @@ void UsbPort::init()
     osMutexDef(usbMutex);
     mutex_ = osMutexCreate(osMutex(usbMutex));
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
+
     osThreadStaticDef(cdcTask, startCDCTask, osPriorityNormal, 0, 128, cdcTaskBuffer, &cdcTaskControlBlock);
     cdcTaskHandle_ = osThreadCreate(osThread(cdcTask), this);
+
+    #pragma GCC diagnostic pop
 }
 
 bool UsbPort::open()
