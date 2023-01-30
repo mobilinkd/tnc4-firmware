@@ -196,10 +196,20 @@ void powerdown(void);
  */
 WakeFromType wakeup(void);
 
+void adc_usage_inc(void);
+void adc_usage_dec(void);
+
+void _configure_power_on_disconnect(void);
+
+
 #ifdef __cplusplus
 }
 
+#include <atomic>
+
 namespace mobilinkd { namespace tnc {
+
+extern std::atomic<uint32_t> HAL_RCC_ADC_CLK_ENABLE;
 
 /**
  * The type of power on or off process to follow.
@@ -243,9 +253,9 @@ void shutdown(PowerType type);
 void wakeup(PowerType type);
 
 void configure_gpio_for_shutdown();
-void configure_device_for_stop(int8_t usb_connected);
+void configure_device_for_stop2(int8_t usb_connected);
 void configure_device_for_stop1();		// USB host connected.
-void configure_gpio_wake_from_stop(int8_t);
+void configure_gpio_wake_from_stop2(int8_t);
 void configure_gpio_wake_from_stop1();	// USB host connected.
 void power_down_vdd_for_shutdown(void);
 void configure_gpio_wake_from_shutdown(void);
@@ -253,8 +263,7 @@ bool should_wake_from_stop2(int8_t usb_connected);
 bool should_wake_from_stop1();
 void configure_device_for_wake_from_stop2(bool was_usb_connected, bool is_usb_connected);
 void configure_device_for_wake_from_stop1(bool is_usb_connected); 	// Was USB host connected.
-void power_down_vdd_for_stop();
-void power_down_vdd_for_stop1();
+void power_down_vdd_for_stop(int8_t usb_connected);
 void initialize_audio();
 void enable_interrupts();
 

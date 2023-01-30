@@ -181,7 +181,7 @@ void   MX_ADC1_Init(void);
 #define TNC_LOWPOWER_VBAT		0x00000010
 #define TNC_LOWPOWER_LOW_BAT 	0x00000020
 #define TNC_LOWPOWER_OVP		0x00000040
-#define TNC_LOWPOWER_ENTER_STOP 0x00000080
+#define TNC_LOWPOWER_RECONFIG   0x00000080
 
 #define POWER_CONFIG_WAKE_FROM_USB	0x00000001
 #define POWER_CONFIG_SLEEP_ON_USB	0x00000002
@@ -203,8 +203,6 @@ typedef enum {
 #define EEPROM_I2C hi2c1
 #define SERIAL_UART huart3
 
-#define USB_CE_Pin GPIO_PIN_4
-#define USB_CE_GPIO_Port GPIOB
 
 // #define TNC_HAS_LSCO -- Not available on TNC4, use MCO instead.
 #define TNC_HAS_SWO
@@ -254,6 +252,8 @@ typedef enum {
 #define CMD_USB_HOST_ENUMERATED 31
 
 #define CMD_AUDIO_INIT_COMPLETE 32
+
+#define CMD_CHECK_BATTERY 33
 
 extern int reset_requested;
 extern char serial_number_64[13];

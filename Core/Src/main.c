@@ -119,6 +119,10 @@ uint8_t m17EncoderInputQueueBuffer[ 3 * sizeof( void* ) ];
 osStaticMessageQDef_t m17EncoderInputQueueControlBlock;
 osTimerId usbShutdownTimerHandle;
 osStaticTimerDef_t usbShutdownTimerControlBlock;
+osTimerId powerOffTimerHandle;
+osStaticTimerDef_t powerOffTimerControlBlock;
+osTimerId batteryCheckTimerHandle;
+osStaticTimerDef_t batteryCheckTimerControlBlock;
 osMutexId hardwareInitMutexHandle;
 osStaticMutexDef_t hardwareInitMutexControlBlock;
 /* USER CODE BEGIN PV */
@@ -162,6 +166,8 @@ extern void startIOEventTask(void const * argument);
 extern void startAudioInputTask(void const * argument);
 extern void startModulatorTask(void const * argument);
 extern void usbShutdownTimerCallback(void const * argument);
+extern void powerOffTimerCallback(void const * argument);
+extern void batteryCheckCallback(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void enable_debug_gpio(void);
@@ -208,6 +214,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
 
 	uint32_t wakeEvent = PWR->SR1 & 0x1F;
+
 	// Capture cause of reset.
   	ResetCause resetCause = RESET_CAUSE_UNKNOWN;
 	if (RCC->CSR & RCC_CSR_SFTRSTF) {
@@ -232,11 +239,12 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
-  // Needed otherwise the shutdown pull-up/pull-down remain active after restart.
-  HAL_PWR_EnableBkUpAccess();
-  HAL_PWREx_DisablePullUpPullDownConfig();
-  HAL_PWREx_DisableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_9);	// VDD_EN
-  HAL_PWR_DisableBkUpAccess();
+	// Disable GPIO pull-up/down otherwise the shutdown pull-up/pull-down
+	// remain active after restart.
+	HAL_PWR_EnableBkUpAccess();
+	HAL_PWREx_DisablePullUpPullDownConfig();
+	HAL_PWREx_DisableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_9);	// VDD_EN
+	HAL_PWR_DisableBkUpAccess();
 
   /* USER CODE END Init */
 
@@ -245,13 +253,14 @@ int main(void)
 
   /* USER CODE BEGIN SysInit */
 
-  TPI->ACPR = 7;	// 16MHz SysClock -> 2MHz SWO.
+  	// SysClock starts at 16MHz and we want a 2MHz SWO.
+	TPI->ACPR = 7;
 
-  // Note that it is important that all GPIO interrupts are disabled until
-  // the FreeRTOS kernel has started.  All GPIO interrupts  send messages
-  // to the ioEventTask thread.  Attempts to use any message queues before
-  // FreeRTOS has started will lead to problems.  Because of this, these
-  // interrupts are enabled only when the ioEventTask thread starts.
+	// Note that it is important that all GPIO interrupts are disabled until
+	// the FreeRTOS kernel has started.  All GPIO interrupts  send messages
+	// to the ioEventTask thread.  Attempts to use any message queues before
+	// FreeRTOS has started will lead to problems.  Because of this, GPIO
+	// interrupts are enabled only when the ioEventTask thread starts.
 
   /* USER CODE END SysInit */
 
@@ -262,220 +271,240 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
-  switch (resetCause) {
-  case RESET_CAUSE_SOFT:
-	  INFO("software reset");
-	  break;
-  case RESET_CAUSE_HARD:
-	  INFO("hardware reset");
-	  // Reset the BKUP_TNC_LOWPOWER_STATE register to ensure the TNC wakes.
-	  HAL_PWR_EnableBkUpAccess();
-	  WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
-	  HAL_PWR_DisableBkUpAccess();
-	  break;
-  case RESET_CAUSE_BOR:
-	  INFO("brown-out reset");
-	  break;
-  case RESET_CAUSE_WUF:
-	  INFO("wake-up event: %02lx", wakeEvent);
-	  break;
-  case RESET_CAUSE_WUTF:
-	  INFO("wake-up timer");
-	  break;
-  default:
-	  INFO("unknown reset, RCC->CSR=0x%08lx", RCC->CSR);
-	  INFO("unknown reset, RTC->SR=0x%08lx", RTC->SR);
-	  INFO("unknown reset, PWR->SR1=0x%08lx", PWR->SR1);
-  }
+	// Log the cause of the reset.
+	switch (resetCause) {
+	case RESET_CAUSE_SOFT:
+		INFO("software reset");
+		break;
+	case RESET_CAUSE_HARD:
+		INFO("hardware reset");
+		// Reset the BKUP_TNC_LOWPOWER_STATE register to ensure the TNC wakes
+		// after a hardware reset.
+		HAL_PWR_EnableBkUpAccess();
+		WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
+		HAL_PWR_DisableBkUpAccess();
+		break;
+	case RESET_CAUSE_BOR:
+		INFO("brown-out reset");
+		break;
+	case RESET_CAUSE_WUF:
+		INFO("wake-up event: %02lx", wakeEvent);
+		break;
+	case RESET_CAUSE_WUTF:
+		INFO("wake-up timer");
+		break;
+	default:
+		INFO("unknown reset, RCC->CSR=0x%08lx", RCC->CSR);
+		INFO("unknown reset, RTC->SR=0x%08lx", RTC->SR);
+		INFO("unknown reset, PWR->SR1=0x%08lx", PWR->SR1);
+	}
 
-  INFO("PWR->SCR=0x%08lx", PWR->SCR);
-  INFO("PWR->CR1=0x%08lx", PWR->CR1);
+	INFO("PWR->SCR=0x%08lx", PWR->SCR);
+	INFO("PWR->CR1=0x%08lx", PWR->CR1);
 
-  __HAL_RCC_CLEAR_RESET_FLAGS();
+	__HAL_RCC_CLEAR_RESET_FLAGS();
 
-  uint32_t start = HAL_GetTick();
+	uint32_t start = HAL_GetTick();
 
-  uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
-  uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
+	uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
+	uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
 
-  // Reset the BKUP_TNC_LOWPOWER_STATE register.
-  HAL_PWR_EnableBkUpAccess();
-  WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
-  HAL_PWR_DisableBkUpAccess();
+	// Reset the BKUP_TNC_LOWPOWER_STATE register.
+	HAL_PWR_EnableBkUpAccess();
+	WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
+	HAL_PWR_DisableBkUpAccess();
 
-  go_back_to_sleep = !!(shutdown_reg & TNC_LOWPOWER_ENTER_STOP); // Stage 1 of stop cycle.
+	// TNC_LOWPOWER_RECONFIG is used to negotiate USB power when the device
+	// is connected to USB while in a low-power state.
+	go_back_to_sleep = !!(shutdown_reg & TNC_LOWPOWER_RECONFIG); // Need to return to sleep.
 
-  // If shutdown because battery is low and there is no VUSB, shutdown again.
-  if ((shutdown_reg & TNC_LOWPOWER_LOW_BAT) && !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
-	  WARN("Battery too low to start");
-	  indicate_battery_low();
-	  HAL_Delay(3000);
-	  shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
-  }
+	// If shutdown because battery is low and there is no VUSB, shutdown again.
+	if ((shutdown_reg & TNC_LOWPOWER_LOW_BAT)
+			&& !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+		HAL_PWR_EnableBkUpAccess();
+		WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_LOW_BAT);
+		HAL_PWR_DisableBkUpAccess();
+		WARN("Battery too low to start");
+		indicate_battery_low();
+		HAL_Delay(3000);
+		go_back_to_sleep = 1;
+	}
 
-#ifdef KISS_LOGGING
-  printf("start\r\n");
-  if (resetCause == RESET_CAUSE_SOFT && error_message[0] != 0) {
-	  error_message[79] = 0;
-      printf(error_message);
-  }
-  error_message[0] = 0;
+	INFO("start");
+	if (resetCause == RESET_CAUSE_SOFT && error_message[0] != 0) {
+		error_message[79] = 0;
+		WARN(error_message);
+	}
+	error_message[0] = 0;
+
+	if (shutdown_reg == 0) {
+		memset(mac_address, 0, 6);
+		memset(error_message, 0, 80);
+		charging_enabled = 0;
+		usb_wake_state = 0;
+	}
+
+	// Needed to check battery level.
+	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+	HAL_Delay(10);
+	MX_ADC1_Init();
+	if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED)
+			!= HAL_OK) {
+		Error_Handler();
+	}
+
+#if 0
+	// Currently only TNC_LOWPOWER_SHUTDOWN when VBAT is low.
+	if (shutdown_reg & TNC_LOWPOWER_SHUTDOWN) {
+		WakeType wake = SHUTDOWN;
+		INFO("wake up");
+		// OVP will glitch for 1ms when VUSB is enabled.
+		if ((resetCause == RESET_CAUSE_WUF) && (wakeEvent & PWR_WAKEUP_PIN4)
+				&& !(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {	// OVP Error
+			ERROR("over voltage");
+			indicate_ovp_error();
+			HAL_Delay(3000);	// Indicate OVP Error for at least 3 seconds.
+			while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
+				// Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
+				if (HAL_GetTick() - start > 300000) {
+					if (is_battery_low()) {
+						WARN("low battery");
+						indicate_battery_low();
+						HAL_Delay(3030);
+						shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
+					}
+					start = HAL_GetTick();
+				}
+			}
+			if ((shutdown_reg & TNC_LOWPOWER_VBAT)
+					&& (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+				wake = WAKE_UP;
+			}
+		} else if ((resetCause == RESET_CAUSE_WUF)
+				&& (wakeEvent & PWR_WAKEUP_PIN5)) {					// SW_POWER
+			INFO("power switch pressed");
+			wake = SHUTDOWN;
+			while ((SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) != 0) {
+				if (HAL_GetTick() - start > 3000) {
+					wake = WAKE_UP;
+					break;
+				}
+			}
+			if (wake == SHUTDOWN) {
+				INFO("power switch press too short");
+			}
+		} else if (resetCause == RESET_CAUSE_WUF
+				&& (wakeEvent & PWR_WAKEUP_PIN2)
+				&& (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) { 	// VDD_SENSE
+			INFO("USB power available");
+			// Power must be present for more than 2 seconds.
+			uint32_t start = HAL_GetTick();
+			while (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
+				if (HAL_GetTick() - start > 2000) {
+					wake = WAKE_UP;
+					break;
+				}
+			}
+			if (wake == WAKE_UP
+					&& !(power_config_reg & POWER_CONFIG_WAKE_FROM_USB)) {
+				wake = SHUTDOWN;
+			}
+		} else if ((shutdown_reg & TNC_LOWPOWER_VUSB)
+				&& !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+			// Wake from USB
+			INFO("USB power lost");
+			wake = SHUTDOWN;
+		} else if (resetCause == RESET_CAUSE_WUTF) {
+			INFO("RTC wake up");
+			__HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+			wake = WAKE_UP;
+		} else if (resetCause != RESET_CAUSE_UNKNOWN) {
+			WARN("Spurious wake up event");
+			wake = WAKE_UP;
+		} else {
+			WARN("Unknown wake up event");
+			wake = WAKE_UP;
+		}
+
+		if (wake == SHUTDOWN) {
+			shutdown(
+					VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin ?
+							TNC_LOWPOWER_VUSB : TNC_LOWPOWER_VBAT);
+		}
+
+		INFO("waking...");
+	}
 #endif
 
-  if (shutdown_reg == 0) {
-	  memset(mac_address, 0, 6);
-	  memset(error_message, 0, 80);
-	  go_back_to_sleep = 0;
-	  charging_enabled = 0;
-	  usb_wake_state = 0;
-  }
+	// Don't start up at all if battery is low.
+	if (!go_back_to_sleep && is_battery_low()) {
+		WARN("low battery");
+		indicate_battery_low();
+		HAL_PWR_EnableBkUpAccess();
+		WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_LOW_BAT);
+		HAL_PWR_DisableBkUpAccess();
+		HAL_Delay(3000);
+		go_back_to_sleep = 1;
+	}
 
-  // Needed to check battery level.
-  HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-  HAL_Delay(10);
-  MX_ADC1_Init();
-  if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
+	GPIO_PinState power_switch_state = !!(SW_POWER_GPIO_Port->IDR & SW_POWER_Pin);
 
-  if (shutdown_reg & TNC_LOWPOWER_SHUTDOWN) {
-	  WakeType wake = SHUTDOWN;
-	  INFO("wake up");
-	  // OVP will glitch for 1ms when VUSB is enabled.
-	  if ((resetCause == RESET_CAUSE_WUF) &&
-			  (wakeEvent & PWR_WAKEUP_PIN4) &&
-			  !(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {	// OVP Error
-		  ERROR("over voltage");
-		  indicate_ovp_error();
-		  HAL_Delay(3000);	// Indicate OVP Error for at least 3 seconds.
-		  while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
-			  // Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
-			  if (HAL_GetTick() - start > 300000) {
-				  if (is_battery_low()) {
-					  WARN("low battery");
-					  indicate_battery_low();
-					  HAL_Delay(3030);
-					  shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
-				  }
-				  start = HAL_GetTick();
-			  }
-		  }
-		  if ((shutdown_reg & TNC_LOWPOWER_VBAT) && (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
-			  wake = WAKE_UP;
-		  }
-	  } else if ((resetCause == RESET_CAUSE_WUF) &&
-			  (wakeEvent & PWR_WAKEUP_PIN5)) {					// SW_POWER
-		  INFO("power switch pressed");
-		  wake = SHUTDOWN;
-		  while ((SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) != 0) {
-			  if (HAL_GetTick() - start > 3000) {
-				  wake = WAKE_UP;
-				  break;
-			  }
-		  }
-		  if (wake == SHUTDOWN) {
-			  INFO("power switch press too short");
-		  }
-	  } else if (resetCause == RESET_CAUSE_WUF &&
-			  (wakeEvent & PWR_WAKEUP_PIN2) &&
-			  (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) { 	// VDD_SENSE
-		  INFO("USB power available");
-		  // Power must be present for more than 2 seconds.
-		  uint32_t start = HAL_GetTick();
-		  while (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
-			  if (HAL_GetTick() - start > 2000) {
-				  wake = WAKE_UP;
-				  break;
-			  }
-		  }
-		  if (wake == WAKE_UP && !(power_config_reg & POWER_CONFIG_WAKE_FROM_USB)) {
-			  wake = SHUTDOWN;
-		  }
-	  } else if ((shutdown_reg & TNC_LOWPOWER_VUSB) &&
-			  !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
-		  // Wake from USB
-		  INFO("USB power lost");
-		  wake = SHUTDOWN;
-	  } else if (resetCause == RESET_CAUSE_WUTF) {
-		  INFO("RTC wake up");
-		  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
-		  wake = WAKE_UP;
-	  } else if (resetCause != RESET_CAUSE_UNKNOWN) {
-		  WARN("Spurious wake up event");
-		  wake = WAKE_UP;
-	  } else {
-		  WARN("Unknown wake up event");
-		  wake = WAKE_UP;
-	  }
+	SCB->SHCSR |= 0x70000;    // Enable fault handlers;
+	if (!go_back_to_sleep) {
+		indicate_turning_on();    // LEDs on during boot.
+		if (power_switch_state && reset_button) {
+			reset_requested = 1;
+		}
+	}
 
-	  if (wake == SHUTDOWN) {
-		  shutdown(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin ? TNC_LOWPOWER_VUSB : TNC_LOWPOWER_VBAT);
-	  }
+	encode_serial_number();
 
-	  INFO("waking...");
-  }
+	if (!go_back_to_sleep) {
+		HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
+		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
+		bm78_wait_until_ready();
+		MX_USART3_UART_Init(); // Initialize UART.
 
-  // Don't start up at all if battery is low.
-  if (is_battery_low()) {
-	  WARN("low battery");
-	  indicate_battery_low();
-	  HAL_Delay(3030);
-	  shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
-  }
+		// BT_CMD has a weak pull-up on the BT module and is in OD mode.  Pull
+		// the pin low during boot to enter Bluetooth programming mode.  Here
+		// the BT_CMD pin is switched to input mode to detect the state.  The
+		// TNC must be reset to exit programming mode.
 
-  GPIO_PinState power_switch_state = !!(SW_POWER_GPIO_Port->IDR & SW_POWER_Pin);
+		// Wait for BT module to settle.
+		GPIO_InitTypeDef GPIO_InitStructure;
 
-  SCB->SHCSR |= 0x70000;    // Enable fault handlers;
-  if (!go_back_to_sleep) {
-      indicate_turning_on();    // LEDs on during boot.
-      if (power_switch_state && reset_button) {
-          reset_requested = 1;
-      }
-  }
+		GPIO_InitStructure.Pin = BT_CMD1_Pin;
+		GPIO_InitStructure.Mode = GPIO_MODE_INPUT;
+		GPIO_InitStructure.Pull = GPIO_PULLUP;
+		HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
+		HAL_Delay(10);
 
-  encode_serial_number();
+		if (HAL_GPIO_ReadPin(BT_CMD1_GPIO_Port, BT_CMD1_Pin)
+				== GPIO_PIN_RESET) {
+			// Special test mode for programming the Bluetooth module.  The TNC
+			// has the BT_CMD pin actively being pulled low.  In this case we
+			// power on the BT module with BT_CMD held low and wait here without
+			// initializing the UART.  We only exit via reset.
+			HAL_UART_MspDeInit(&huart3);
 
-  if (!go_back_to_sleep) {
-	  HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
-	  bm78_wait_until_ready();
-	  MX_USART3_UART_Init(); // Initialize UART.
+			HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET);
+			HAL_Delay(1);
+			HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET);
+			HAL_Delay(200);
 
-	  // BT_CMD has a weak pull-up on the BT module and is in OD mode.  Pull
-	  // the pin low during boot to enter Bluetooth programming mode.  Here
-	  // the BT_CMD pin is switched to input mode to detect the state.  The
-      // TNC must be reset to exit programming mode.
+			INFO("Bluetooth programming mode");
 
-      // Wait for BT module to settle.
-      GPIO_InitTypeDef GPIO_InitStructure;
+			while (1)
+				;
+		}
 
-      GPIO_InitStructure.Pin = BT_CMD1_Pin;
-      GPIO_InitStructure.Mode = GPIO_MODE_INPUT;
-      GPIO_InitStructure.Pull = GPIO_PULLUP;
-      HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
-      HAL_Delay(10);
-
-      if (HAL_GPIO_ReadPin(BT_CMD1_GPIO_Port, BT_CMD1_Pin) == GPIO_PIN_RESET) {
-          // Special test mode for programming the Bluetooth module.  The TNC
-          // has the BT_CMD pin actively being pulled low.  In this case we
-          // power on the BT module with BT_CMD held low and wait here without
-          // initializing the UART.  We only exit via reset.
-          HAL_UART_MspDeInit(&huart3);
-
-          HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET);
-          HAL_Delay(1);
-          HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET);
-          HAL_Delay(200);
-
-          INFO("Bluetooth programming mode");
-
-          while (1);
-      }
-
-      // Not in BT programming mode.  Switch BT_CMD back to OD mode.
-      HAL_GPIO_WritePin(BT_CMD1_GPIO_Port, BT_CMD1_Pin, GPIO_PIN_SET);
-      GPIO_InitStructure.Pin = BT_CMD1_Pin;
-      GPIO_InitStructure.Mode = GPIO_MODE_OUTPUT_OD;
-      GPIO_InitStructure.Pull = GPIO_PULLUP;
-      HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
-  }
+		// Not in BT programming mode.  Switch BT_CMD back to OD mode.
+		HAL_GPIO_WritePin(BT_CMD1_GPIO_Port, BT_CMD1_Pin, GPIO_PIN_SET);
+		GPIO_InitStructure.Pin = BT_CMD1_Pin;
+		GPIO_InitStructure.Mode = GPIO_MODE_OUTPUT_OD;
+		GPIO_InitStructure.Pull = GPIO_PULLUP;
+		HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
+	}
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
@@ -501,6 +530,14 @@ int main(void)
   /* definition and creation of usbShutdownTimer */
   osTimerStaticDef(usbShutdownTimer, usbShutdownTimerCallback, &usbShutdownTimerControlBlock);
   usbShutdownTimerHandle = osTimerCreate(osTimer(usbShutdownTimer), osTimerOnce, NULL);
+
+  /* definition and creation of powerOffTimer */
+  osTimerStaticDef(powerOffTimer, powerOffTimerCallback, &powerOffTimerControlBlock);
+  powerOffTimerHandle = osTimerCreate(osTimer(powerOffTimer), osTimerOnce, NULL);
+
+  /* definition and creation of batteryCheckTimer */
+  osTimerStaticDef(batteryCheckTimer, batteryCheckCallback, &batteryCheckTimerControlBlock);
+  batteryCheckTimerHandle = osTimerCreate(osTimer(batteryCheckTimer), osTimerPeriodic, NULL);
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
@@ -541,72 +578,110 @@ int main(void)
 
 #pragma GCC diagnostic pop
 
-  // ADC1 already initialized and calibrated.
-  MX_ADC2_Init();
-  MX_DAC1_Init();
-  MX_OPAMP1_Init();
-  MX_TIM6_Init();
-  MX_TIM7_Init();
-  MX_CRC_Init();
-  MX_RNG_Init();
+	// ADC1 already initialized and calibrated.
+	MX_ADC2_Init();
+	MX_DAC1_Init();
+	MX_OPAMP1_Init();
+	MX_TIM6_Init();
+	MX_TIM7_Init();
+	MX_CRC_Init();
+	MX_RNG_Init();
 
-  // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
-  if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024) != HAL_OK) Error_Handler();
-  if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK) Error_Handler();
-  if (HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK) Error_Handler();
-  if (HAL_OPAMP_Start(&hopamp1) != HAL_OK) Error_Handler();
-  if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
+	// Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
+	if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024)
+			!= HAL_OK)
+		Error_Handler();
+	if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK)
+		Error_Handler();
+	if (HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK)
+		Error_Handler();
+	if (HAL_OPAMP_Start(&hopamp1) != HAL_OK)
+		Error_Handler();
+	if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED)
+			!= HAL_OK)
+		Error_Handler();
 
-  if (!go_back_to_sleep) {
-      // Initialize the BM78 Bluetooth module. Note that a CPU speed of 2MHz
-	  // here will cause this to fail.
-      if (!bm78_initialized() || reset_requested) {
-          bm78_initialize();
-      } else {
-          bm78_initialize_mac_address();
-      }
-  }
+	if (!go_back_to_sleep) {
+		// Initialize the BM78 Bluetooth module. Note that a CPU speed of 2MHz
+		// here will cause this to fail.
+		if (!bm78_initialized() || reset_requested) {
+			bm78_initialize();
+		} else {
+			bm78_initialize_mac_address();
+		}
+	}
 
-  init_ioport();
-  initCDC();
-  initSerial();
+	init_ioport();
+	initCDC();
+	initSerial();
 
-  // Initialize option bytes.
-  FLASH_OBProgramInitTypeDef obInit = {0};
-  HAL_FLASHEx_OBGetConfig(&obInit);
+	// Initialize option bytes.
+	FLASH_OBProgramInitTypeDef obInit = { 0 };
+	HAL_FLASHEx_OBGetConfig(&obInit);
 
-  if ((obInit.OptionType & OPTIONBYTE_USER) == RESET) {
-    ERROR("FAIL: option byte init");
-    Error_Handler();
-  }
+	if ((obInit.OptionType & OPTIONBYTE_USER) == RESET) {
+		ERROR("FAIL: option byte init");
+		Error_Handler();
+	}
 
 #if 1
-  // Do not erase SRAM2 during reset.
-  if ((obInit.USERConfig & FLASH_OPTR_SRAM2_RST) == RESET) {
-    obInit.OptionType = OPTIONBYTE_USER;
-    obInit.USERType = OB_USER_SRAM2_RST;
-    obInit.USERConfig = FLASH_OPTR_SRAM2_RST;
-    HAL_FLASH_OB_Unlock();
-    HAL_FLASHEx_OBProgram(&obInit);
-    HAL_FLASH_OB_Lock();
-    HAL_FLASH_OB_Launch();
-  }
+	// Do not erase SRAM2 during reset.
+	if ((obInit.USERConfig & FLASH_OPTR_SRAM2_RST) == RESET) {
+		obInit.OptionType = OPTIONBYTE_USER;
+		obInit.USERType = OB_USER_SRAM2_RST;
+		obInit.USERConfig = FLASH_OPTR_SRAM2_RST;
+		HAL_FLASH_OB_Unlock();
+		HAL_FLASHEx_OBProgram(&obInit);
+		HAL_FLASH_OB_Lock();
+		HAL_FLASH_OB_Launch();
+	}
 #endif
 
 #if 1
-  // Enable hardware parity check on SRAM2
-  if ((obInit.USERConfig & FLASH_OPTR_SRAM2_PE) == RESET) {
-    obInit.OptionType = OPTIONBYTE_USER;
-    obInit.USERType = OB_USER_SRAM2_PE;
-    obInit.USERConfig = FLASH_OPTR_SRAM2_PE;
-    HAL_FLASH_OB_Unlock();
-    HAL_FLASHEx_OBProgram(&obInit);
-    HAL_FLASH_OB_Lock();
-    HAL_FLASH_OB_Launch();
-  }
+	// Enable hardware parity check on SRAM2
+	HAL_FLASHEx_OBGetConfig(&obInit);
+	if ((obInit.USERConfig & FLASH_OPTR_SRAM2_PE) == RESET) {
+		obInit.OptionType = OPTIONBYTE_USER;
+		obInit.USERType = OB_USER_SRAM2_PE;
+		obInit.USERConfig = FLASH_OPTR_SRAM2_PE;
+		HAL_FLASH_OB_Unlock();
+		HAL_FLASHEx_OBProgram(&obInit);
+		HAL_FLASH_OB_Lock();
+		HAL_FLASH_OB_Launch();
+	}
 #endif
 
-//  MX_IWDG_Init();
+#if 1
+	// Disable IWDG in stop2
+	HAL_FLASHEx_OBGetConfig(&obInit);
+	if ((obInit.USERConfig & FLASH_OPTR_IWDG_STOP)) {
+		obInit.OptionType = OPTIONBYTE_USER;
+		obInit.USERType = OB_USER_IWDG_STOP;
+		obInit.USERConfig = OB_IWDG_STOP_FREEZE;
+		HAL_FLASH_Unlock();
+		HAL_FLASH_OB_Unlock();
+		HAL_FLASHEx_OBProgram(&obInit);
+		HAL_FLASH_OB_Launch();
+		HAL_FLASH_OB_Lock();
+		HAL_FLASH_Lock();
+	}
+	// Disable IWDG in shutdown
+	HAL_FLASHEx_OBGetConfig(&obInit);
+	if ((obInit.USERConfig & FLASH_OPTR_IWDG_STDBY)) {
+		obInit.OptionType = OPTIONBYTE_USER;
+		obInit.USERType = OB_USER_IWDG_STDBY;
+		obInit.USERConfig = OB_IWDG_STDBY_FREEZE;
+		HAL_FLASH_Unlock();
+		HAL_FLASH_OB_Unlock();
+		HAL_FLASHEx_OBProgram(&obInit);
+		HAL_FLASH_OB_Launch();
+		HAL_FLASH_OB_Lock();
+		HAL_FLASH_Lock();
+	}
+
+#endif
+
+	MX_IWDG_Init();
 
   /* USER CODE END RTOS_QUEUES */
 
@@ -629,7 +704,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-//  osThreadSuspend(testToneTaskHandle);
+
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -1020,7 +1095,7 @@ void MX_IWDG_Init(void)
 
   /* USER CODE END IWDG_Init 1 */
   hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
   hiwdg.Init.Window = 4095;
   hiwdg.Init.Reload = 4095;
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
@@ -2007,7 +2082,31 @@ void _Error_Handler(char *file, int line)
 
 void usbShutdownTimerCallback(void const * argument)
 {
-	shutdown(TNC_LOWPOWER_VUSB);
+	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
+}
+
+void powerOffTimerCallback(void const * argument)
+{
+	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
+}
+
+void batteryCheckCallback(void const * argument)
+{
+	HAL_IWDG_Refresh(&hiwdg);
+
+	if (is_battery_low()) {
+        HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
+        HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
+
+        vTaskSuspendAll();
+		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET); // BT module on.
+		_configure_power_on_disconnect();
+
+        HAL_PWR_EnableBkUpAccess();
+		WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT | TNC_LOWPOWER_STOP2 | TNC_LOWPOWER_RECONFIG);
+	    HAL_PWR_DisableBkUpAccess();
+	    HAL_NVIC_SystemReset();
+	}
 }
 
 /* USER CODE END 4 */

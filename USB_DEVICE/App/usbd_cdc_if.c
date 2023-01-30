@@ -169,6 +169,7 @@ static int8_t CDC_Init_FS(void)
 {
   /* USER CODE BEGIN 3 */
   /* Set Application Buffers */
+  osMessagePut(ioEventQueueHandle, CMD_USB_HOST_ENUMERATED, 0);
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, usbCdcRxBuffer_1->buffer);
   return (USBD_OK);

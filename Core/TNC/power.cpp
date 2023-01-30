@@ -16,6 +16,8 @@
 
 #include "cmsis_os.h"
 
+#include <atomic>
+
 extern osMessageQId ioEventQueueHandle;
 extern RTC_HandleTypeDef hrtc;
 extern ADC_HandleTypeDef BATTERY_ADC_HANDLE;
@@ -33,6 +35,7 @@ extern TIM_HandleTypeDef htim8;
 extern UART_HandleTypeDef huart3;
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 extern USBD_HandleTypeDef hUsbDeviceFS;
+extern IWDG_HandleTypeDef hiwdg;
 
 volatile uint32_t low_battery = 0;
 volatile uint32_t usb_resume = 0;
@@ -66,7 +69,7 @@ extern "C" void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeD
 
       case PCD_BCD_CHARGING_DOWNSTREAM_PORT:
     	  INFO("BCD detected charging downstream USB port");
-          osMessagePut(ioEventQueueHandle, CMD_USB_CHARGE_ENABLE, 0);
+          osMessagePut(ioEventQueueHandle, CMD_USB_HOST_CONNECTED, 0);
           downstream_port = 1;
           break;
 
@@ -216,7 +219,7 @@ extern "C" void stop1(uint32_t low_power_state)
 		__asm volatile ( "dsb" );
 		__asm volatile ( "isb" );
 
-		power_down_vdd_for_stop();
+		power_down_vdd_for_stop(usb_connected);
 		configure_gpio_wake_from_stop1();
 		HAL_PWREx_DisableLowPowerRunMode();	// Required to enter STOP2
 
@@ -258,20 +261,21 @@ extern "C" void stop2(uint32_t low_power_state)
 	WRITE_REG(BKUP_TNC_LOWPOWER_STATE, low_power_state | TNC_LOWPOWER_STOP2);
     HAL_PWR_DisableBkUpAccess();
 
-	GPIO_PinState usb_connected = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9);
-	if (usb_connected == GPIO_PIN_RESET) charging_enabled = 0;
-
 	go_back_to_sleep = 0;
+	GPIO_PinState usb_connected = GPIO_PIN_RESET;
 
 	do {
-		configure_device_for_stop(usb_connected);
+		usb_connected = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9);
+		if (!usb_connected) charging_enabled = 0;
+
+		configure_device_for_stop2(usb_connected);
 
 		__asm volatile ( "cpsid i" );
 		__asm volatile ( "dsb" );
 		__asm volatile ( "isb" );
 
-		power_down_vdd_for_stop();
-		configure_gpio_wake_from_stop(usb_connected);
+		power_down_vdd_for_stop(usb_connected);
+		configure_gpio_wake_from_stop2(usb_connected);
 		HAL_PWREx_DisableLowPowerRunMode();	// Required to enter STOP2
 
 		/* Set Stop mode 2 */
@@ -285,12 +289,19 @@ extern "C" void stop2(uint32_t low_power_state)
 		__WFE();
 		__WFE();
 
+		__asm volatile ( "nop" );
+		__asm volatile ( "nop" );
+
 		/* Reset SLEEPDEEP bit of Cortex System Control Register */
 		CLEAR_BIT(SCB->SCR, ((uint32_t)SCB_SCR_SLEEPDEEP_Msk));
 
 		__asm volatile ( "nop" );
 		__asm volatile ( "nop" );
 	} while (!should_wake_from_stop2(usb_connected));
+
+    HAL_PWR_EnableBkUpAccess();
+	WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0);
+    HAL_PWR_DisableBkUpAccess();
 
 	GPIO_PinState is_usb_connected = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9);
 	configure_device_for_wake_from_stop2(usb_connected, is_usb_connected);
@@ -329,10 +340,21 @@ extern "C" void shutdown(uint32_t low_power_state)
 	}
 }
 
+extern "C" void _configure_power_on_disconnect()
+{
+	mobilinkd::tnc::configure_power_on_disconnect();
+}
+
 namespace mobilinkd { namespace tnc {
 
 uint32_t get_bat_level()
 {
+	bool adc_clock_enabled = __HAL_RCC_ADC_IS_CLK_ENABLED();
+
+	if (!adc_clock_enabled) {
+		__HAL_RCC_ADC_CLK_ENABLE();
+	}
+
 	const uint32_t VMAX = 16383;
 
     ADC_ChannelConfTypeDef sConfig;
@@ -368,6 +390,10 @@ uint32_t get_bat_level()
 
     if (HAL_ADC_Stop(&BATTERY_ADC_HANDLE) != HAL_OK) Error_Handler();
 
+	if (!adc_clock_enabled) {
+		__HAL_RCC_ADC_CLK_DISABLE();
+	}
+
     HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_SET);
 
     uint32_t vrefcal = ((uint16_t)*(VREFINT_CAL_ADDR));
@@ -397,9 +423,18 @@ extern "C" int is_battery_low()
 	}
 
 	// Set up power for battery comparator.
-	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+	bool vdd_on = true;
+	if (!(VDD_SENSE_GPIO_Port->IDR & VDD_SENSE_Pin)) {
+		HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+		HAL_Delay(50);
+		vdd_on = false;
+	}
 
 	uint32_t vbat = get_bat_level();
+
+	if (!vdd_on ) {
+		HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
+	}
 
 	return vbat < 3400;
 }
@@ -482,8 +517,10 @@ int is_battery_low2()
  *
  * GPIO configuration is retained in stop mode.
  */
-void configure_device_for_stop(int8_t usb_connected)
+void configure_device_for_stop2(int8_t usb_connected)
 {
+	go_back_to_sleep = 0;
+
 	HAL_OPAMP_DeInit(&hopamp1);
 	HAL_OPAMP_DeInit(&hopamp2);
 	HAL_COMP_DeInit(&hcomp1);
@@ -510,17 +547,19 @@ void configure_device_for_stop(int8_t usb_connected)
     __HAL_RCC_GPIOH_CLK_ENABLE();
 	__HAL_RCC_PWR_CLK_ENABLE();
 
-#if defined(DEBUG)
+#if !defined(DEBUG)
     HAL_DBGMCU_EnableDBGStopMode();
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_13|GPIO_PIN_14));	// Except OVP, SWD.
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_3));				// Except SWO.
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_3|GPIO_PIN_4));	// Except SWO & BAT_CE.
 #else
     HAL_DBGMCU_DisableDBGStopMode();
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All);							// Includes SWD.
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All);							// Includes SWO.
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_4));				// Except BAT_CE.
 #endif
     HAL_GPIO_DeInit(GPIOC, GPIO_PIN_All^(GPIO_PIN_9|GPIO_PIN_14|GPIO_PIN_15)); // Except VDD_EN & LSE.
     HAL_GPIO_DeInit(GPIOH, GPIO_PIN_All^(TCXO_EN_Pin));
+
+	SysClock2();
 
     if (usb_connected) {
 		// With USB power, TCXO & BT must be kept off using TCXO_EN & BT_SLEEP.
@@ -529,6 +568,7 @@ void configure_device_for_stop(int8_t usb_connected)
 		HAL_GPIO_DeInit(TCXO_IN_GPIO_Port, TCXO_IN_Pin);
     } else {
 		// Without USB power, TCXO & BT will be off.
+		HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
 		HAL_GPIO_DeInit(TCXO_IN_GPIO_Port, TCXO_IN_Pin|TCXO_EN_Pin);
 		HAL_GPIO_DeInit(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin);
     }
@@ -593,35 +633,14 @@ void configure_device_for_stop1()
 
 void configure_device_for_wake_from_stop2(bool was_usb_connected, bool is_usb_connected)
 {
-	indicate_turning_on();
-	MX_OPAMP1_Init();
-	MX_DAC1_Init();
-	if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024) != HAL_OK) Error_Handler();
-	if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK) Error_Handler();
-	if (HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK) Error_Handler();
-	if (HAL_OPAMP_Start(&hopamp1) != HAL_OK) Error_Handler();
-	MX_TIM6_Init();
-	MX_TIM6_Init();
-	HAL_I2C_Init(&hi2c1);
-	HAL_ADC_Init(&DEMODULATOR_ADC_HANDLE);
-	if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
-	HAL_RNG_Init(&hrng);
-	HAL_CRC_Init(&hcrc);
-	HAL_DAC_Init(&hdac1);
-	HAL_PWR_EnablePVD();
-	HAL_UART_Init(&huart3);
-
-	xTaskResumeAll();
-
-	if (is_usb_connected & !was_usb_connected) {
-		go_back_to_sleep = !powerOnViaUSB();
-		osMessagePut(ioEventQueueHandle, CMD_USB_CONNECTED, 0);
-	} else if (!is_usb_connected & was_usb_connected) {
-		go_back_to_sleep = 1;
-		osMessagePut(ioEventQueueHandle, CMD_USB_DISCONNECTED, 0);
+	uint32_t reg = is_usb_connected ? TNC_LOWPOWER_VUSB : TNC_LOWPOWER_VBAT;
+	if (go_back_to_sleep) {
+	    HAL_PWR_EnableBkUpAccess();
+		WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_STOP2| reg | TNC_LOWPOWER_RECONFIG);
+	    HAL_PWR_DisableBkUpAccess();
 	}
 
-	vTaskSuspendAll();
+	HAL_NVIC_SystemReset();
 }
 
 void configure_device_for_wake_from_stop1(bool is_usb_connected)
@@ -751,7 +770,7 @@ void configure_gpio_wake_from_shutdown()
 }
 
 
-void configure_gpio_wake_from_stop(int8_t usb_connected)
+void configure_gpio_wake_from_stop2(int8_t usb_connected)
 {
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -777,10 +796,12 @@ void configure_gpio_wake_from_stop(int8_t usb_connected)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(SW_POWER_GPIO_Port, &GPIO_InitStruct);
 
+#if 0
     GPIO_InitStruct.Pin = OVP_ERROR_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_EVT_FALLING;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(OVP_ERROR_GPIO_Port, &GPIO_InitStruct);
+#endif
 
     HAL_PWREx_EnableInternalWakeUpLine();
 
@@ -809,11 +830,15 @@ void configure_gpio_wake_from_stop1()
     HAL_PWREx_EnableBORPVD_ULP();
 }
 
-void power_down_vdd_for_stop()
+void power_down_vdd_for_stop(int8_t usb_connected)
 {
     __HAL_RCC_GPIOC_CLK_ENABLE();
-    HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
-    for (int i = 0; i < 1200; ++i) asm volatile("nop");
+    if (usb_connected) {
+    	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+    } else {
+		HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
+		for (int i = 0; i < 1200; ++i) asm volatile("nop");
+    }
 }
 
 void power_down_vdd_for_shutdown()
@@ -862,9 +887,11 @@ bool should_wake_from_stop2(int8_t usb_connected)
 	uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
 	uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
 
-	__asm volatile ( "cpsie i" );
+	__asm volatile ( "cpsie i" );	// Enable interrupts.
 
 	__HAL_RCC_PWR_CLK_ENABLE();
+
+	HAL_IWDG_Refresh(&hiwdg);
 
 	HAL_Init();
 	SystemClock_Config();
@@ -884,11 +911,18 @@ bool should_wake_from_stop2(int8_t usb_connected)
 	INFO("GPIOC = 0x%04lx", gpio_c);
 
 	if ((shutdown_reg & TNC_LOWPOWER_LOW_BAT) && !(gpio_a & GPIO_PIN_9)) {
+		// Low battery and no VUSB power; return immediately to stop mode.
+		SysClock2();
+		indicate_battery_low();
+		while (SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) {
+			HAL_IWDG_Refresh(&hiwdg);
+		}
 		return result;
 	}
 
 	uint32_t start = HAL_GetTick();
 
+#if 0
 	MX_GPIO_Init();
 
 	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
@@ -896,35 +930,57 @@ bool should_wake_from_stop2(int8_t usb_connected)
 	HAL_ADC_Init(&hadc1);
 	if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
 
-	if ((gpio_a & GPIO_PIN_9) && !usb_connected) {			// VUSB connect
-		INFO("USB Connected")
+	while (OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin) {
+		// OVP must last longer than 200ms to be a real event.
+		if (HAL_GetTick() - start > 200) {
+			break;
+		}
+	}
+#endif
+
+	if ((GPIOA->IDR & GPIO_PIN_9) && !usb_connected) {
+		// VUSB connect
 		while (GPIOA->IDR & GPIO_PIN_9) {
-			if (HAL_GetTick() - start > 3000) {
+			if (HAL_GetTick() - start > 2000) {
+				INFO("USB Connected");
 				result = true;
+				if (power_config_reg & POWER_CONFIG_WAKE_FROM_USB) {
+					go_back_to_sleep = 0;
+				} else if (shutdown_reg & TNC_LOWPOWER_LOW_BAT) {
+					go_back_to_sleep = 0;
+				} else {
+					go_back_to_sleep = 1;
+				}
 				break;
 			}
 		}
-	} else if (!(gpio_a & GPIO_PIN_9) && usb_connected) {	// VUSB disconnect
-		INFO("USB Disconnected")
+	} else if (!(GPIOA->IDR & GPIO_PIN_9) && usb_connected) {	// VUSB disconnect
 		while (!(GPIOA->IDR & GPIO_PIN_9)) {
-			if (HAL_GetTick() - start > 3000) {
-				result = true;
+			if (HAL_GetTick() - start > 2000) {
+				// Battery charging off.
+                HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
+                HAL_PWR_EnableBkUpAccess();
+				WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_STOP2);
+			    HAL_PWR_DisableBkUpAccess();
+
+				INFO("USB Disconnected");
 				break;
 			}
 		}
-	} else if (gpio_c & GPIO_PIN_5) {						// SW_POWER press
+	} else if (SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) {		// SW_POWER press
 		INFO("power button");
-		while (GPIOC->IDR & GPIO_PIN_5) {
-			if (HAL_GetTick() - start > 3000) {
+		while (SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) {
+			if (HAL_GetTick() - start > 2000) {
 				INFO("wake up");
 				result = true;
 				break;
 			}
 		}
-	} else if (!(GPIOC->IDR & GPIO_PIN_2)) {				// OVP_ERROR
+	}
+#if 0
+	else if (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {	// OVP_ERROR
 		ERROR("over voltage");
 		indicate_ovp_error();
-		HAL_Delay(3000);	// Indicate OVP Error for at least 3 seconds.
 		while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
 			// Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
 			if (HAL_GetTick() - start > 300000) {
@@ -932,18 +988,21 @@ bool should_wake_from_stop2(int8_t usb_connected)
 					WARN("low battery");
 					indicate_battery_low();
 					HAL_Delay(3030);
-					// shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
+					HAL_PWR_EnableBkUpAccess();
+					WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT | TNC_LOWPOWER_STOP2);
+					HAL_PWR_DisableBkUpAccess();
+					break;
 				}
 				start = HAL_GetTick();
 			}
 		}
 		if (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
+			powerState = PowerState::POWER_STATE_VBUS;
+			go_back_to_sleep = power_config_reg & POWER_CONFIG_WAKE_FROM_USB ? 0 : 1;
 			result = true;
 		}
 	}
-
-	if (!result) INFO("back to stop2");
-
+#endif
 	return result;
 }
 
@@ -985,7 +1044,7 @@ bool should_wake_from_stop1()
 	if (usb_resume) {
 		result = true;
 	} else if (!(gpio_a & GPIO_PIN_9)) {	// VUSB disconnect
-		INFO("USB Disconnected")
+		INFO("USB Disconnected");
 		while (!(GPIOA->IDR & GPIO_PIN_9)) {
 			if (HAL_GetTick() - start > 3000) {
 				result = true;
@@ -1027,6 +1086,7 @@ void initialize_audio()
 
 void enable_interrupts()
 {
+	// This also enables VUSB_SENSE.
     HAL_NVIC_ClearPendingIRQ(SW_POWER_EXTI_IRQn);
     HAL_NVIC_SetPriority(SW_POWER_EXTI_IRQn,5, 0);
     HAL_NVIC_EnableIRQ(SW_POWER_EXTI_IRQn);
