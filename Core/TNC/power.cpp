@@ -547,7 +547,7 @@ void configure_device_for_stop2(int8_t usb_connected)
     __HAL_RCC_GPIOH_CLK_ENABLE();
 	__HAL_RCC_PWR_CLK_ENABLE();
 
-#if !defined(DEBUG)
+#if defined(DEBUG)
     HAL_DBGMCU_EnableDBGStopMode();
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_13|GPIO_PIN_14));	// Except OVP, SWD.
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_3|GPIO_PIN_4));	// Except SWO & BAT_CE.
