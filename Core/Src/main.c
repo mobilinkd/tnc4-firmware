@@ -460,50 +460,10 @@ int main(void)
 	encode_serial_number();
 
 	if (!go_back_to_sleep) {
+        MX_USART3_UART_Init(); // Initialize UART.
 		HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
 		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
 		bm78_wait_until_ready();
-		MX_USART3_UART_Init(); // Initialize UART.
-
-		// BT_CMD has a weak pull-up on the BT module and is in OD mode.  Pull
-		// the pin low during boot to enter Bluetooth programming mode.  Here
-		// the BT_CMD pin is switched to input mode to detect the state.  The
-		// TNC must be reset to exit programming mode.
-
-		// Wait for BT module to settle.
-		GPIO_InitTypeDef GPIO_InitStructure;
-
-		GPIO_InitStructure.Pin = BT_CMD1_Pin;
-		GPIO_InitStructure.Mode = GPIO_MODE_INPUT;
-		GPIO_InitStructure.Pull = GPIO_PULLUP;
-		HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
-		HAL_Delay(10);
-
-		if (HAL_GPIO_ReadPin(BT_CMD1_GPIO_Port, BT_CMD1_Pin)
-				== GPIO_PIN_RESET) {
-			// Special test mode for programming the Bluetooth module.  The TNC
-			// has the BT_CMD pin actively being pulled low.  In this case we
-			// power on the BT module with BT_CMD held low and wait here without
-			// initializing the UART.  We only exit via reset.
-			HAL_UART_MspDeInit(&huart3);
-
-			HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET);
-			HAL_Delay(1);
-			HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET);
-			HAL_Delay(200);
-
-			INFO("Bluetooth programming mode");
-
-			while (1)
-				;
-		}
-
-		// Not in BT programming mode.  Switch BT_CMD back to OD mode.
-		HAL_GPIO_WritePin(BT_CMD1_GPIO_Port, BT_CMD1_Pin, GPIO_PIN_SET);
-		GPIO_InitStructure.Pin = BT_CMD1_Pin;
-		GPIO_InitStructure.Mode = GPIO_MODE_OUTPUT_OD;
-		GPIO_InitStructure.Pull = GPIO_PULLUP;
-		HAL_GPIO_Init(BT_CMD1_GPIO_Port, &GPIO_InitStructure);
 	}
 
 #pragma GCC diagnostic push
@@ -772,7 +732,9 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+#if defined(DEBUG)
   HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_8);
+#endif
 }
 
 /**
