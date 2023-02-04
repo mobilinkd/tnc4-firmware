@@ -256,7 +256,7 @@ typedef enum {
 #define CMD_CHECK_BATTERY 33
 
 extern int reset_requested;
-extern char serial_number_64[13];
+extern char serial_number_64[24];
 extern uint8_t mac_address[6];
 extern char error_message[80];
 extern int go_back_to_sleep;
@@ -266,8 +266,9 @@ extern int reset_button;
 extern int stop_now;
 extern osMutexId hardwareInitMutexHandle;
 extern ADC_HandleTypeDef hadc2;
-extern int bt_connected;
-
+extern uint16_t mobilinkd_model;
+extern uint16_t mobilindk_date_code;
+extern uint32_t mobilinkd_serial_number;
 
 #define CxxErrorHandler() _Error_Handler(const_cast<char*>(__FILE__), __LINE__)
 

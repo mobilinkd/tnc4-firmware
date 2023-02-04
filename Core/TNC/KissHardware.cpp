@@ -557,7 +557,7 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
         reply(hardware::GET_HARDWARE_VERSION, (uint8_t*) HARDWARE_VERSION,
           sizeof(HARDWARE_VERSION) - 1);
         reply(hardware::GET_SERIAL_NUMBER, (uint8_t*) serial_number_64,
-            sizeof(serial_number_64) - 1);
+            strlen(serial_number_64));
         reply16(hardware::GET_OUTPUT_GAIN, output_gain);
         reply8(hardware::GET_OUTPUT_TWIST, tx_twist);
         reply16(hardware::GET_INPUT_GAIN, input_gain);

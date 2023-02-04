@@ -501,7 +501,6 @@ void EXTI1_IRQHandler(void)
 		if (BT_STATE2_GPIO_Port->IDR & BT_STATE2_Pin) {
 			osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
 		} else {
-			bt_connected = 0;
 			osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
 		}
 	}
@@ -519,6 +518,9 @@ void EXTI1_IRQHandler(void)
 void EXTI2_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI2_IRQn 0 */
+    // OVP error is not just triggered for over-voltage, but also for
+    // under-voltage. This happens when USB is connected and disconnected.
+    // So this interrupt is less useful that we'd like.
     if (HAL_GPIO_ReadPin(OVP_ERROR_GPIO_Port, OVP_ERROR_Pin) == GPIO_PIN_RESET)
     {
     	// osMessagePut(ioEventQueueHandle, CMD_OVP_ERROR, 0);

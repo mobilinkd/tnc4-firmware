@@ -549,7 +549,7 @@ void configure_device_for_stop2(int8_t usb_connected)
 
 #if defined(DEBUG)
     HAL_DBGMCU_EnableDBGStopMode();
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_13|GPIO_PIN_14));	// Except OVP, SWD.
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_13|GPIO_PIN_14));	// Except SWD.
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_3|GPIO_PIN_4));	// Except SWO & BAT_CE.
 #else
     HAL_DBGMCU_DisableDBGStopMode();
@@ -615,12 +615,12 @@ void configure_device_for_stop1()
 
 #if defined(DEBUG)
     HAL_DBGMCU_EnableDBGStopMode();
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_2|GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14));	// Except OVP, USB, SWD.
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_3|GPIO_PIN_4));										// Except SWO, BAT_CE
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_11|GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14));	// Except USB, SWD.
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_3|GPIO_PIN_4));							// Except SWO, BAT_CE
 #else
     HAL_DBGMCU_DisableDBGStopMode();
-    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_2|GPIO_PIN_11|GPIO_PIN_12));							// Includes SWD.
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_4));													// Includes SWO.
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All^(GPIO_PIN_11|GPIO_PIN_12));							// Except USB.
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All^(GPIO_PIN_4));										// Except BAT_CE.
 #endif
     HAL_GPIO_DeInit(GPIOC, GPIO_PIN_All^(GPIO_PIN_9|GPIO_PIN_14|GPIO_PIN_15)); // Except VDD_EN & LSE.
     HAL_GPIO_DeInit(GPIOH, GPIO_PIN_All^(TCXO_EN_Pin));
@@ -1051,25 +1051,6 @@ bool should_wake_from_stop1()
 				break;
 			}
 		}
-	} else if (!(GPIOC->IDR & GPIO_PIN_2)) {				// OVP_ERROR
-		ERROR("over voltage");
-		indicate_ovp_error();
-		HAL_Delay(3000);	// Indicate OVP Error for at least 3 seconds.
-		while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
-			// Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
-			if (HAL_GetTick() - start > 300000) {
-				if (is_battery_low()) {
-					WARN("low battery");
-					indicate_battery_low();
-					HAL_Delay(3030);
-					// shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
-				}
-				start = HAL_GetTick();
-			}
-		}
-		if (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
-			result = true;
-		}
 	}
 
 	if (!result) INFO("back to stop1");
@@ -1103,7 +1084,7 @@ void enable_interrupts()
     HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
-#ifdef OVP_ERROR_EXTI_IRQn
+#ifdef 0
     HAL_NVIC_ClearPendingIRQ(OVP_ERROR_EXTI_IRQn);
     HAL_NVIC_SetPriority(OVP_ERROR_EXTI_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(OVP_ERROR_EXTI_IRQn);
