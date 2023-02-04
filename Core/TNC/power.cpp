@@ -1084,7 +1084,7 @@ void enable_interrupts()
     HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
-#ifdef 0
+#if 0
     HAL_NVIC_ClearPendingIRQ(OVP_ERROR_EXTI_IRQn);
     HAL_NVIC_SetPriority(OVP_ERROR_EXTI_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(OVP_ERROR_EXTI_IRQn);
