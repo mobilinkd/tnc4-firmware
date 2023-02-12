@@ -88,7 +88,7 @@ osThreadId defaultTaskHandle;
 uint32_t defaultTaskBuffer[ 256 ];
 osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId ioEventTaskHandle;
-uint32_t ioEventTaskBuffer[ 384 ];
+uint32_t ioEventTaskBuffer[ 512 ];
 osStaticThreadDef_t ioEventTaskControlBlock;
 osThreadId audioInputTaskHandle;
 uint32_t audioInputTaskBuffer[ 512 ];
@@ -161,6 +161,8 @@ uint16_t mobilinkd_model;
 uint16_t mobilindk_date_code;
 uint32_t mobilinkd_serial_number;
 
+extern TIM_HandleTypeDef htim15;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -224,9 +226,10 @@ int main(void)
     ResetCause resetCause = RESET_CAUSE_UNKNOWN;
     if (RCC->CSR & RCC_CSR_SFTRSTF) {
         resetCause = RESET_CAUSE_SOFT;
+    } else if (RCC->CSR & RCC_CSR_IWDGRSTF) {
+        resetCause = RESET_CAUSE_IWDG;
     } else if (RCC->CSR & RCC_CSR_PINRSTF) {
         reset_button = 1;
-        resetCause = RESET_CAUSE_HARD;
     } else if (RCC->CSR & RCC_CSR_BORRSTF) {
         resetCause = RESET_CAUSE_BOR;
     } else if (wakeEvent) {
@@ -286,6 +289,14 @@ int main(void)
     case RESET_CAUSE_SOFT:
         INFO("software reset");
         break;
+    case RESET_CAUSE_IWDG:
+        INFO("watchdog reset");
+        // Reset the BKUP_TNC_LOWPOWER_STATE register to ensure the TNC wakes
+        // after a watchdog reset.
+        HAL_PWR_EnableBkUpAccess();
+        WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
+        HAL_PWR_DisableBkUpAccess();
+        break;
     case RESET_CAUSE_HARD:
         INFO("hardware reset");
         // Reset the BKUP_TNC_LOWPOWER_STATE register to ensure the TNC wakes
@@ -341,6 +352,7 @@ int main(void)
     }
 
     INFO("start");
+
     if (resetCause == RESET_CAUSE_SOFT && error_message[0] != 0) {
         error_message[79] = 0;
         WARN(error_message);
@@ -355,7 +367,7 @@ int main(void)
     }
 
     // Needed to check battery level.
-    HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+    enable_vdd();
     HAL_Delay(10);
     MX_ADC1_Init();
     if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED)
@@ -472,8 +484,10 @@ int main(void)
 
     if (!go_back_to_sleep) {
         MX_USART3_UART_Init(); // Initialize UART.
-        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
         HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
+        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET); // BT module out of reset.
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
         bm78_wait_until_ready();
     }
 
@@ -557,6 +571,7 @@ int main(void)
     MX_TIM7_Init();
     MX_CRC_Init();
     MX_RNG_Init();
+    MX_I2C1_Init();
 
     // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
     if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024)
@@ -658,11 +673,11 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityLow, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
+  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of ioEventTask */
-  osThreadStaticDef(ioEventTask, startIOEventTask, osPriorityLow, 0, 384, ioEventTaskBuffer, &ioEventTaskControlBlock);
+  osThreadStaticDef(ioEventTask, startIOEventTask, osPriorityLow, 0, 512, ioEventTaskBuffer, &ioEventTaskControlBlock);
   ioEventTaskHandle = osThreadCreate(osThread(ioEventTask), NULL);
 
   /* definition and creation of audioInputTask */
@@ -1770,9 +1785,7 @@ void SysClock2(void)
     Error_Handler();
   }
 
-  /**Configure the Systick interrupt time
-  */
-  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+  INFO("CPU core clock: %luHz", SystemCoreClock);
 
   HAL_RCCEx_EnableMSIPLLMode();
 
@@ -1791,6 +1804,8 @@ void SysClock2(void)
   LED_PWM_TIMER_HANDLE.Instance->PSC = 1;
 
   xTaskResumeAll();
+
+  INFO("CPU core clock: %luHz", SystemCoreClock);
 }
 
 void SysClock48()
@@ -1803,7 +1818,7 @@ void SysClock48()
     INFO("Setting 48MHz SysClock.");
 
     // VDD must be enabled to use TCXO.
-    if (!(VDD_SENSE_GPIO_Port->IDR & VDD_SENSE_Pin)) {
+    if (!(VDD_EN_GPIO_Port->ODR & VDD_EN_Pin)) {
         _Error_Handler(__FILE__, __LINE__);
     }
 
@@ -1820,6 +1835,7 @@ void SysClock48()
 
     // Set voltage regulator to normal run mode.
     HAL_PWREx_DisableLowPowerRunMode();
+    HAL_RCCEx_DisableMSIPLLMode();
     if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
     {
     	Error_Handler();
@@ -1862,51 +1878,59 @@ void SysClock48()
     	_Error_Handler(__FILE__, __LINE__);
     }
 
-    /**Configure the Systick interrupt time
-    */
-    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-
     TPI->ACPR = 23;
     LED_PWM_TIMER_HANDLE.Instance->PSC = 47;
 
     xTaskResumeAll();
+
+    INFO("CPU core clock: %luHz", SystemCoreClock);
 }
 
 void SysClock72()
 {
-    RCC_OscInitTypeDef RCC_OscInitStruct;
-    RCC_ClkInitTypeDef RCC_ClkInitStruct;
+    RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
-    if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 72000000) return;
+    if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE
+            && HAL_RCC_GetHCLKFreq() == 72000000)
+        return;
+
+    INFO("Setting 72MHz SysClock.");
+
+    // VDD must be enabled to use TCXO.
+    if (!(VDD_EN_GPIO_Port->ODR & VDD_EN_Pin)) {
+        _Error_Handler(__FILE__, __LINE__);
+    }
 
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
-    if (osKernelRunning())
-    	osDelay(10);
-    else
-    	HAL_Delay(10);
 
-    INFO("Setting 72MHz SysClock.");
+    if (osKernelRunning()) {
+        osDelay(10);
+    } else {
+        HAL_Delay(10);
+    }
 
     vTaskSuspendAll();
 
     // Set voltage regulator to normal run mode.
     HAL_PWREx_DisableLowPowerRunMode();
-    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
-    {
-      Error_Handler();
+    HAL_RCCEx_DisableMSIPLLMode();
+    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1)
+            != HAL_OK) {
+        Error_Handler();
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
 
     // Use HSI for SysClock while reconfiguring clocks.
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
+        _Error_Handler(__FILE__, __LINE__);
     }
 
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE
+            | RCC_OSCILLATORTYPE_MSI;
     RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
     RCC_OscInitStruct.MSIState = RCC_MSI_OFF;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -1916,121 +1940,28 @@ void SysClock72()
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
     RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
+
+    HAL_StatusTypeDef result = HAL_RCC_OscConfig(&RCC_OscInitStruct);
+    if (result != HAL_OK) {
+        ERROR("HAL_RCC_OscConfig = %d", result);
+        _Error_Handler(__FILE__, __LINE__);
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
+    result = HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3);
+    if (result != HAL_OK) {
+        ERROR("HAL_RCC_ClockConfig = %d", result);
+        _Error_Handler(__FILE__, __LINE__);
     }
-
-    /**Configure the Systick interrupt time
-    */
-    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
     TPI->ACPR = 35;
     LED_PWM_TIMER_HANDLE.Instance->PSC = 71;
 
     xTaskResumeAll();
-}
 
-void SysClock80()
-{
-	return;
-    RCC_OscInitTypeDef RCC_OscInitStruct;
-    RCC_ClkInitTypeDef RCC_ClkInitStruct;
-
-    if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 80000000) return;
-
-    INFO("Setting 80MHz SysClock.");
-
-    // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
-    HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
-    if (osKernelRunning())
-    	osDelay(10);
-    else
-    	HAL_Delay(10);
-
-    vTaskSuspendAll();
-
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
-    }
-
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
-    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
-    RCC_OscInitStruct.MSIState = RCC_MSI_OFF;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM = 3;
-    RCC_OscInitStruct.PLL.PLLN = 20;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
-    }
-
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
-    }
-
-    /**Configure the Systick interrupt time
-    */
-    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-
-    TPI->ACPR = 39;
-    LED_PWM_TIMER_HANDLE.Instance->PSC = 79;
-
-    xTaskResumeAll();
-}
-
-void SysClock4()
-{
-	RCC_OscInitTypeDef RCC_OscInitStruct;
-    RCC_ClkInitTypeDef RCC_ClkInitStruct;
-
-    taskENTER_CRITICAL();
-
-    __HAL_RCC_PWR_CLK_ENABLE();
-
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
-    RCC_OscInitStruct.MSIState = RCC_MSI_ON;
-    RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
-    RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
-
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
-    }
-
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
-
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
-    }
-
-    /**Configure the Systick interrupt time
-    */
-    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
-
-    taskEXIT_CRITICAL();
+    INFO("CPU core clock: %luHz", SystemCoreClock);
 }
 
 /**

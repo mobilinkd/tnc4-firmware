@@ -72,7 +72,7 @@ void Error_Handler(void);
 #define EEPROM_ADDRESS 0xA0
 #define EEPROM_CAPACITY 4096
 #define EEPROM_PAGE_SIZE 32
-#define EEPROM_WRITE_TIME 5
+#define EEPROM_WRITE_TIME 10
 #define VDD_SENSE_Pin GPIO_PIN_13
 #define VDD_SENSE_GPIO_Port GPIOC
 #define TCXO_IN_Pin GPIO_PIN_0
@@ -192,7 +192,8 @@ typedef enum {
 	RESET_CAUSE_HARD,	// Reset button
 	RESET_CAUSE_BOR,	// Brown-out reset
 	RESET_CAUSE_WUF,	// GPIO wake-up
-	RESET_CAUSE_WUTF	// Timer wake-up
+	RESET_CAUSE_WUTF,	// Timer wake-up
+    RESET_CAUSE_IWDG    // Independent watchdog
 } ResetCause;
 
 // Compatibility defines
@@ -281,8 +282,6 @@ void _Error_Handler(char *, int) __attribute__ ((noreturn));
 void SystemClock_Config(void);
 void SysClock48(void);
 void SysClock72(void);
-void SysClock80(void);
-void SysClock4(void);
 void SysClock2(void);
 void error_code(int8_t a, int8_t b);
 

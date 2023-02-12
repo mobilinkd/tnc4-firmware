@@ -66,6 +66,9 @@ void startIOEventTask(void const*)
 
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
+    disable_adc_clk(); // Battery ADC is not in use now.
+
+
     /* Configure GPIO pin : VUSB_SENSE for input so it can be read. */
     GPIO_InitStruct.Pin = VUSB_SENSE_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
@@ -80,7 +83,6 @@ void startIOEventTask(void const*)
         print_startup_banner();
     }
 
-    MX_I2C1_Init();
     auto& hardware = kiss::settings();
 
     if (reset_requested or !hardware.load() or !hardware.crc_ok())
@@ -92,8 +94,6 @@ void startIOEventTask(void const*)
         hardware.init();
         hardware.store();
     }
-
-    HAL_I2C_DeInit(&hi2c1);
 
     if (!go_back_to_sleep) {
 		osMutexRelease(hardwareInitMutexHandle);
@@ -278,6 +278,7 @@ void startIOEventTask(void const*)
                     getModulator().init(hardware);	// Need to re-init modulator after reconfig.
                     osMessagePut(audioInputQueueHandle,
                         audio::DEMODULATOR, osWaitForever);
+                    osThreadYield();
                 }
                 break;
             case CMD_BT_DISCONNECT:
@@ -330,23 +331,9 @@ void startIOEventTask(void const*)
 					connectionState = ConnectionState::DISCONNECTED;
                 }
 
-                vTaskSuspendAll();
                 stop2((powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB) |
                 		(battery_low ? TNC_LOWPOWER_LOW_BAT : 0));
-            	xTaskResumeAll();
-
-            	if (!go_back_to_sleep) {
-            		battery_low = false;
-					INFO("RUN mode");
-					HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
-					audio::setAudioOutputLevel();
-					audio::setAudioInputLevels();
-					bm78_wait_until_ready();
-			        enable_interrupts();
-			        indicate_waiting_to_connect();
-            	} else {
-            		INFO("Returning to stop mode...");
-            	}
+                // No return...
                 break;
             case CMD_USB_CHARGE_ENABLE:
                 INFO("USB charging enabled");
