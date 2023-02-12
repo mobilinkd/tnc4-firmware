@@ -395,7 +395,11 @@ bool SerialPort::write(const uint8_t* data, uint32_t size, uint8_t type, uint32_
 
     // Buffer has room for at least one more byte.
     tmpBuffer[pos++] = 0xC0;
-    while (!txDoneFlag) osThreadYield();
+    while (!txDoneFlag && osKernelSysTick() - start < timeout) osThreadYield();
+    if (!txDoneFlag) {
+        txDoneFlag = true;
+        return false;
+    }
     memcpy(TxBuffer, tmpBuffer, pos);
     txDoneFlag = false;
     while (open_ and HAL_UART_Transmit_DMA(&huart_serial, TxBuffer, pos) == HAL_BUSY)
