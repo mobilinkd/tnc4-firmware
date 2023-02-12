@@ -119,7 +119,6 @@ extern "C" void startAudioInputTask(void const*) {
         case UPDATE_SETTINGS:
             TNC_DEBUG("UPDATE_SETTINGS");
             setAudioInputLevels();
-            updateModulator();
             break;
         case IDLE:
             INFO("IDLE");
@@ -207,7 +206,7 @@ void demodulatorTask() {
             continue;
         }
 
-        HAL_IWDG_Refresh(&hiwdg);
+//        HAL_IWDG_Refresh(&hiwdg);
 
         auto block = (adc_pool_type::chunk_type*) evt.value.p;
         auto samples = (int16_t*) block->buffer;
@@ -490,36 +489,6 @@ void pollBatteryLevel()
     data[2] = (vbat & 0xFF);
 
     ioport->write(data, 3, 6, 10);
-}
-#endif
-
-#if 0
-void stop() {
-    osDelay(100);
-    auto restore = SysTick->CTRL;
-
-    kiss::settings().input_offset += 6;
-    setAudioInputLevels();
-    kiss::settings().input_offset -= 6;
-    TNC_DEBUG("Stop");
-    // __disable_irq();
-    vTaskSuspendAll();
-    SysTick->CTRL = 0;
-    HAL_COMP_Init(&hcomp1);
-    HAL_COMP_Start_IT(&hcomp1);
-    while (adcState == STOPPED) {
-        // PWR_MAINREGULATOR_ON / PWR_LOWPOWERREGULATOR_ON
-        HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
-    }
-    SystemClock_Config();
-    SysTick->CTRL = restore;
-    // __enable_irq();
-    HAL_COMP_Stop_IT(&hcomp1);
-    HAL_COMP_DeInit(&hcomp1);
-    xTaskResumeAll();
-    setAudioInputLevels();
-    // adcState = DEMODULATOR;
-    TNC_DEBUG("Wake");
 }
 #endif
 
