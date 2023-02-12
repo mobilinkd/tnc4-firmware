@@ -80,6 +80,7 @@ typedef enum PowerState {
 
 extern PowerStateType powerState;
 
+
 /**
  * Is VBUS not present and the battery level too low? This will return 1
  * (true) when VBUS is not present and the battery level is below 3.4V.
@@ -102,8 +103,11 @@ int is_battery_low2(void);
  */
 int is_over_voltage(void);
 
-void enable_vdd();
-void disable_vdd();
+void enable_vdd(void);
+void disable_vdd(void);
+
+void enable_adc_clk(void);
+void disable_adc_clk(void);
 
 
 /**
@@ -266,7 +270,8 @@ void configure_device_for_wake_from_stop1(bool is_usb_connected); 	// Was USB ho
 void power_down_vdd_for_stop(int8_t usb_connected);
 void initialize_audio();
 void enable_interrupts();
-
+void _enable_vdd();
+void _disable_vdd();
 
 }} // mobilinkd::tnc
 

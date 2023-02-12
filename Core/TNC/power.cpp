@@ -39,6 +39,7 @@ extern IWDG_HandleTypeDef hiwdg;
 
 volatile uint32_t low_battery = 0;
 volatile uint32_t usb_resume = 0;
+volatile uint32_t vdd_count = 0;
 PowerState powerState = POWER_STATE_UNKNOWN;
 
 /**
@@ -93,6 +94,47 @@ extern "C" void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeD
       default:
       break;
     }
+}
+
+extern "C" void enable_vdd()
+{
+    mobilinkd::tnc::_enable_vdd();
+}
+extern "C" void disable_vdd()
+{
+    mobilinkd::tnc::_disable_vdd();
+}
+
+static volatile int adc_clk = 2; // After startup, both ADC are enabled.
+
+extern "C" void enable_adc_clk()
+{
+    auto x = taskENTER_CRITICAL_FROM_ISR();
+
+    if (!adc_clk) {
+        __HAL_RCC_ADC_CLK_ENABLE();
+    }
+    ++adc_clk;
+
+    taskEXIT_CRITICAL_FROM_ISR(x);
+
+    INFO("+adc = %d", adc_clk);
+}
+
+extern "C" void disable_adc_clk()
+{
+    auto x = taskENTER_CRITICAL_FROM_ISR();
+
+    if (adc_clk == 0) return;
+
+    --adc_clk;
+    if (!adc_clk) {
+        __HAL_RCC_ADC_CLK_DISABLE();
+    }
+
+    taskEXIT_CRITICAL_FROM_ISR(x);
+
+    INFO("-adc = %d", adc_clk);
 }
 
 
@@ -250,12 +292,9 @@ extern "C" void stop2(uint32_t low_power_state)
 {
 	using namespace mobilinkd::tnc;
 
-	INFO("stop2");
+    vTaskSuspendAll();
 
-	if (xTaskGetSchedulerState() != taskSCHEDULER_SUSPENDED) {
-		ERROR("Scheduler not suspended");
-		CxxErrorHandler();
-	}
+    INFO("stop2");
 
     HAL_PWR_EnableBkUpAccess();
 	WRITE_REG(BKUP_TNC_LOWPOWER_STATE, low_power_state | TNC_LOWPOWER_STOP2);
@@ -305,6 +344,7 @@ extern "C" void stop2(uint32_t low_power_state)
 
 	GPIO_PinState is_usb_connected = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9);
 	configure_device_for_wake_from_stop2(usb_connected, is_usb_connected);
+	// No return -- reset.
 }
 
 extern "C" void shutdown(uint32_t low_power_state)
@@ -349,15 +389,11 @@ namespace mobilinkd { namespace tnc {
 
 uint32_t get_bat_level()
 {
-	bool adc_clock_enabled = __HAL_RCC_ADC_IS_CLK_ENABLED();
-
-	if (!adc_clock_enabled) {
-		__HAL_RCC_ADC_CLK_ENABLE();
-	}
-
 	const uint32_t VMAX = 16383;
 
     ADC_ChannelConfTypeDef sConfig;
+
+    enable_adc_clk();
 
 	HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_RESET);
 	HAL_Delay(1); // Stabilize power.
@@ -390,11 +426,9 @@ uint32_t get_bat_level()
 
     if (HAL_ADC_Stop(&BATTERY_ADC_HANDLE) != HAL_OK) Error_Handler();
 
-	if (!adc_clock_enabled) {
-		__HAL_RCC_ADC_CLK_DISABLE();
-	}
-
     HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_SET);
+
+    disable_adc_clk();
 
     uint32_t vrefcal = ((uint16_t)*(VREFINT_CAL_ADDR));
     uint32_t vdda = 3000 * (vrefcal << 2) / vrefint;
@@ -418,23 +452,12 @@ extern "C" int is_battery_low()
 {
 	// No need to check for low battery on startup is VBUS is present.
 	if (HAL_GPIO_ReadPin(VUSB_SENSE_GPIO_Port, VUSB_SENSE_Pin) == GPIO_PIN_SET) {
-		HAL_GPIO_DeInit(VUSB_SENSE_GPIO_Port, VUSB_SENSE_Pin);
 		return 0;
 	}
 
-	// Set up power for battery comparator.
-	bool vdd_on = true;
-	if (!(VDD_SENSE_GPIO_Port->IDR & VDD_SENSE_Pin)) {
-		HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-		HAL_Delay(50);
-		vdd_on = false;
-	}
-
+	enable_vdd();
 	uint32_t vbat = get_bat_level();
-
-	if (!vdd_on ) {
-		HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
-	}
+	disable_vdd();
 
 	return vbat < 3400;
 }
@@ -478,12 +501,9 @@ int is_battery_low2()
 	}
 
 	// Set up power for battery comparator.
-	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+	enable_vdd();
 	HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_RESET);
 	HAL_Delay(5); // Stabilize power.
-
-	// VDD must be powered on.
-	if (HAL_GPIO_ReadPin(VDD_SENSE_GPIO_Port, VDD_SENSE_Pin) == GPIO_PIN_RESET) Error_Handler();
 
 	// Set up VBAT comparator.
 	MX_COMP1_Init();
@@ -498,7 +518,7 @@ int is_battery_low2()
 	HAL_COMP_DeInit(&hcomp1);
 
 	// Power down VDD and disable battery voltage divider.
-	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
+	disable_vdd();
 	HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_SET);
 
 	return battery_ok ? 0 : 1;
@@ -654,8 +674,6 @@ void configure_device_for_wake_from_stop1(bool is_usb_connected)
 	MX_TIM6_Init();
 	MX_TIM6_Init();
 	HAL_I2C_Init(&hi2c1);
-	HAL_ADC_Init(&DEMODULATOR_ADC_HANDLE);
-	if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
 	HAL_RNG_Init(&hrng);
 	HAL_CRC_Init(&hcrc);
 	HAL_DAC_Init(&hdac1);
@@ -845,20 +863,6 @@ void power_down_vdd_for_shutdown()
 {
 }
 
-void power_up_vdd()
-{
-    GPIO_InitTypeDef GPIO_InitStruct;
-
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-
-    GPIO_InitStruct.Pin = VDD_EN_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(VDD_EN_GPIO_Port, &GPIO_InitStruct);
-
-    HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-}
-
 void enable_debug_gpio()
 {
     if (!__HAL_RCC_GPIOA_IS_CLK_ENABLED()) Error_Handler();
@@ -921,22 +925,6 @@ bool should_wake_from_stop2(int8_t usb_connected)
 	}
 
 	uint32_t start = HAL_GetTick();
-
-#if 0
-	MX_GPIO_Init();
-
-	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
-	HAL_Delay(10);
-	HAL_ADC_Init(&hadc1);
-	if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
-
-	while (OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin) {
-		// OVP must last longer than 200ms to be a real event.
-		if (HAL_GetTick() - start > 200) {
-			break;
-		}
-	}
-#endif
 
 	if ((GPIOA->IDR & GPIO_PIN_9) && !usb_connected) {
 		// VUSB connect
@@ -1093,9 +1081,9 @@ void enable_interrupts()
 
 void configure_power_on_connect()
 {
-	MX_TIM6_Init();
-	MX_TIM7_Init();
-	__HAL_RCC_ADC_CLK_ENABLE();
+    enable_adc_clk();
+    __HAL_RCC_TIM6_CLK_ENABLE();
+    __HAL_RCC_TIM7_CLK_ENABLE();
 	__HAL_RCC_CRC_CLK_ENABLE();
 	__HAL_RCC_I2C1_CLK_ENABLE();
 	__HAL_RCC_RNG_CLK_ENABLE();
@@ -1111,13 +1099,39 @@ void configure_power_on_connect()
  */
 void configure_power_on_disconnect()
 {
-	HAL_TIM_Base_DeInit(&htim6);
-	HAL_TIM_Base_DeInit(&htim7);
-	__HAL_RCC_ADC_CLK_DISABLE();
+    disable_adc_clk();
+    __HAL_RCC_TIM6_CLK_DISABLE();
+    __HAL_RCC_TIM7_CLK_DISABLE();
 	__HAL_RCC_CRC_CLK_DISABLE();
 	__HAL_RCC_I2C1_CLK_DISABLE();
 	__HAL_RCC_RNG_CLK_DISABLE();
 	__HAL_RCC_USART3_CLK_DISABLE();
+}
+
+ int vdd_counter = 0;
+
+void _enable_vdd()
+{
+    auto x = taskENTER_CRITICAL_FROM_ISR();
+
+    if (!vdd_counter) {
+        HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
+    }
+    vdd_counter++;
+
+    taskEXIT_CRITICAL_FROM_ISR(x);
+}
+
+void _disable_vdd()
+{
+    auto x = taskENTER_CRITICAL_FROM_ISR();
+
+    vdd_counter--;
+    if (!vdd_counter) {
+        HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
+    }
+
+    taskEXIT_CRITICAL_FROM_ISR(x);
 }
 
 
