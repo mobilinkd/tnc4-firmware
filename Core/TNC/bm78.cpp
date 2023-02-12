@@ -485,7 +485,7 @@ void bm78_wait_until_ready()
 
         __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE2_Pin);
         __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE1_Pin);
-        HAL_Delay(1);
+        HAL_Delay(10);
         bt_state2 = HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
         bt_state1 = HAL_GPIO_ReadPin(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
         TNC_DEBUG("bt_state2=%d, bt_state1=%d", bt_state2, bt_state1);
