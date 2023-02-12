@@ -1736,76 +1736,75 @@ void init_rtc_alarm()
   */
 void SysClock2(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  if (HAL_RCC_GetHCLKFreq() == 2000000) return;
+    if (HAL_RCC_GetHCLKFreq() == 2000000)
+        return;
 
-  INFO("Setting 2MHz SysClock.");
+    INFO("Setting 2MHz SysClock.");
 
-  vTaskSuspendAll();
+    vTaskSuspendAll();
 
-  HAL_PWREx_DisableLowPowerRunMode();
+    HAL_PWREx_DisableLowPowerRunMode();
 
-  /** Configure the main internal regulator output voltage
-  */
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    /** Configure the main internal regulator output voltage
+     */
+    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK) {
+        Error_Handler();
+    }
 
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
 
-  // Use HSI for SysClock while reconfiguring clocks.
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
+    // Use HSI for SysClock while reconfiguring clocks.
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
+        _Error_Handler(__FILE__, __LINE__);
+    }
 
-  // Disable HSE, enable MSI and set to 2MHz, disable PLL.
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI|RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
-  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
-  RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_OFF;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    // Disable HSE, enable MSI and set to 2MHz, disable PLL.
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
+    RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+    RCC_OscInitStruct.MSICalibrationValue = 0;
+    RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_OFF;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+        Error_Handler();
+    }
 
-  // Set SysClock to MSI.
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
+    // Set SysClock to MSI.
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
+        Error_Handler();
+    }
 
-  INFO("CPU core clock: %luHz", SystemCoreClock);
+    INFO("CPU core clock: %luHz", SystemCoreClock);
 
-  HAL_RCCEx_EnableMSIPLLMode();
+    HAL_RCCEx_EnableMSIPLLMode();
 
-  // Set voltage regulators to lowest power mode.
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    // Set voltage regulators to lowest power mode.
+    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE2) != HAL_OK) {
+        Error_Handler();
+    }
 
-  HAL_PWREx_EnableLowPowerRunMode();
+    HAL_PWREx_EnableLowPowerRunMode();
 
-  // Disable TCXO.
-  HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
+    // Disable TCXO.
+    HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
 
-  TPI->ACPR = 0;
-  LED_PWM_TIMER_HANDLE.Instance->PSC = 1;
+    TPI->ACPR = 0;
+    LED_PWM_TIMER_HANDLE.Instance->PSC = 1;
 
-  xTaskResumeAll();
+    // Configure the Systick interrupt time
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
 
-  INFO("CPU core clock: %luHz", SystemCoreClock);
+    xTaskResumeAll();
+
+    INFO("CPU core clock: %luHz", SystemCoreClock);
 }
 
 void SysClock48()
@@ -1880,6 +1879,9 @@ void SysClock48()
 
     TPI->ACPR = 23;
     LED_PWM_TIMER_HANDLE.Instance->PSC = 47;
+
+    // Configure the Systick interrupt time
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
 
     xTaskResumeAll();
 
@@ -1959,6 +1961,9 @@ void SysClock72()
     TPI->ACPR = 35;
     LED_PWM_TIMER_HANDLE.Instance->PSC = 71;
 
+    // Configure the Systick interrupt time
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
+
     xTaskResumeAll();
 
     INFO("CPU core clock: %luHz", SystemCoreClock);
@@ -1993,6 +1998,7 @@ void usbShutdownTimerCallback(void const * argument)
 
 void powerOffTimerCallback(void const * argument)
 {
+    INFO("shutdown timer triggered");
 	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
 }
 

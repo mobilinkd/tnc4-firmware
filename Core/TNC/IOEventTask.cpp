@@ -68,7 +68,6 @@ void startIOEventTask(void const*)
 
     disable_adc_clk(); // Battery ADC is not in use now.
 
-
     /* Configure GPIO pin : VUSB_SENSE for input so it can be read. */
     GPIO_InitStruct.Pin = VUSB_SENSE_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
@@ -222,7 +221,11 @@ void startIOEventTask(void const*)
             case CMD_POWER_BUTTON_DOWN:
                 INFO("Power Down");
                 indicate_turning_off();
-                osTimerStart(powerOffTimerHandle, 2000);
+                if (auto result = osTimerStart(powerOffTimerHandle, 2000) == osOK) {
+                    INFO("shutdown timer started");
+                } else {
+                    ERROR("shutdown timer start failed = %d", result);
+                }
                 break;
             case CMD_POWER_BUTTON_UP:
             	INFO("Power Up");
