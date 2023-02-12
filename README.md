@@ -213,7 +213,7 @@ We must work around this problem.
 One simple way around it is to revert to *stop mode* if the TNC4 wakes
 up too many times from VDD Sense when VUSB is not present. In stop mode,
 the TNC can use *VUSB Sense* as a wake-up event. This will consume a bit
-mode power (5uA vs 2uA) than shutdown, but is a viable alternative.
+mode power (4.3uA vs 2.1uA) than shutdown, but is a viable alternative.
 
 It is worth considering whether the D3 should be connected to 3V3 rather
 than VDD. This would avoid the spurious VDD events and phantom power
@@ -222,70 +222,26 @@ appearing on VDD.  Or we could connect VUSB sense to the wake-up pin.
 At the same time, it is rarely anyone's intent to leave the radio
 turned on while connected to a TNC that is turned off.
 
+In a future revision, *VUSB Sense* will be connected to the wake-up pin
+instead of *VDD Sense*. And we may see the clamping diode tied to 3V3
+instead of VDD. But this will depend on the leakage current which can
+be quite high on Schottky diodes. For example, at the leakage on BAT54S
+and similar diodes can change from .3uA to 30uA from 25C to 85C. I
+would need to find diodes with lower leakage than that.
 
 
-### Stop Mode
+### Stop2 Mode
 
-Stop mode is used when VUSB is present, either when connected to a host or
+Stop2 mode is used when either VUSB is not present or when VUSB is present
+and connected to a USB charger. This mode avoides the problems present
+in shutdown mode by allowing a much wider range of wake-up signals. This
+mode consumes about 4.5uA instead of 2.2uA. Like shutdown mode, current
+consumption is much higher when debugging in stop mode is enabled.
+
+### Stop1 Mode
+
+Stop1 mode is used when VUSB is present, either when connected to a host or
 USB charger. This is required because in order to enable charging, the TNC
 must pull the USB_CE down hard, and this is only possible in the stop modes.
 In addition, when connected to a VUSB
 
-### Power Test Cases
-
-Current consumption when the TNC is connected is dependent on the modem
-type selected.
-
-When the TNC is powered on and disconnected, it should draw about 12mA.
-
-When the TNC is in low-power mode (OFF), it should draw less than 5uA. At
-full charge, the battery will last 20 years at 5uA. The self-discharge rate
-of the battery is significantly higher.
-
-The tests must verify that for each of these cases, the current consumption
-is within spec.
-
- 1. Battery Power
-    1. TNC In Low-Power State
-        1. Power Button (>3.4V)
-           * Must power on and work normally.
-        1. Power Button (<3.4V)
-           * Must indicate low battery power and return to low-power mode.
-           * Must power on when USB connected.
-           * Battery level is never re-checked. Requires USB power to power on.
-    1. TNC In Run Mode Disconnected
-        1. Power Button
-           * Must not power off if held for less than 2 seconds.
-           * Must enter low-power mode when held for 2 or more seconds.
-        1. Battery Check > 3.4V
-           * TNC continues to operate normally.
-        1. Battery Check <= 3.4V
-           * Must indicate low battery power and enter low-power mode.
-    1. TNC In Run Mode Connected BT
-        1. Power Button
-           * Must not interfere with connection state or modem operation
-             when held for less than 2 seconds.
-           * Must enter low-power mode when held for 2 or more seconds.
-        1. Battery Check > 3.4V
-           * Must not interfere with connection state or modem operation.
-           * TNC continues to operate normally.
-        1. Battery Check <= 3.4V
-           * Must indicate low battery power and enter low-power mode.
-           * Bluetooth connection lost.
-        1. Must test multiple scenarios
-           * AFSK Modem Receiveing
-           * AFSK Modem Transmitting
-           * Config app various states
- 1. USB Power
-    1. TNC In Low-Power State
-        1. USB Power Connected Less Than 2 Seconds
-           * TNC returns to low-power state.
-        1. USB Power Connected More Than 2 Seconds
-           1. While in normal low power mode
-              * Wake, negotiate power, return to low-power mode.
-           1. While in low power mode, battery low
-              * Wake, negotiate power.
-           1. While in low power mode, Power On Via USB enabled.
-              * USB power must be present for >2 seconds.
-              * Wake, negotiate power.
-       
