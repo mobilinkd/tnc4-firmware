@@ -61,6 +61,7 @@ struct Fsk9600Modulator : Modulator
         HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
         HAL_TIM_Base_Stop(&htim7);
         ptt_->off();
+        INFO("Fsk9600Modulator::deinit");
     }
 
     void set_gain(uint16_t level) override
@@ -166,6 +167,7 @@ struct Fsk9600Modulator : Modulator
 #if defined(KISS_LOGGING) && defined(HAVE_LSCO)
             HAL_RCCEx_EnableLSCO(RCC_LSCOSOURCE_LSE);
 #endif
+        INFO("Fsk9600Modulator::abort");
         // Drain the queue.
         while (osMessageGet(dacOutputQueueHandle_, 0).status == osEventMessage);
     }
@@ -210,39 +212,7 @@ private:
         return sample;
     }
 
-    void fill(uint16_t* buffer, bool bit)
-    {
-        HAL_IWDG_Refresh(&hiwdg);
-        switch (level)
-        {
-        case Level::HIGH:
-            if (bit)
-            {
-                std::fill(buffer, buffer + BIT_LEN, adjust_level(2047));
-            }
-            else
-            {
-                std::transform(cos_table.begin(), cos_table.end(), buffer,
-                    [this](auto x){return adjust_level(x);});
-                level = Level::LOW;
-            }
-            break;
-        case Level::LOW:
-            if (bit)
-            {
-                std::transform(cos_table.begin(), cos_table.end(), buffer,
-                    [this](auto x){return adjust_level(-1 - x);});
-                level = Level::HIGH;
-            }
-            else
-            {
-                std::fill(buffer, buffer + BIT_LEN, adjust_level(-2048));
-            }
-            break;
-        default:
-            CxxErrorHandler();
-        }
-    }
+    void fill(uint16_t* buffer, bool bit);
 };
 
 }} // mobilinkd::tnc
