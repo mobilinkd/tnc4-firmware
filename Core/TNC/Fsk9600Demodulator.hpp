@@ -28,7 +28,7 @@ struct Descrambler
 
 struct Fsk9600Demodulator : IDemodulator
 {
-    static constexpr size_t FILTER_TAP_NUM = 132;
+    static constexpr size_t FILTER_TAP_NUM = 92;
     static constexpr uint32_t ADC_BLOCK_SIZE = 384;
     static_assert(audio::ADC_BUFFER_SIZE >= ADC_BLOCK_SIZE);
 
@@ -72,6 +72,8 @@ struct Fsk9600Demodulator : IDemodulator
         sConfig.Offset = 0;
         if (HAL_ADC_ConfigChannel(&DEMODULATOR_ADC_HANDLE, &sConfig) != HAL_OK)
             CxxErrorHandler();
+
+        audio::virtual_ground = 8192;
 
         startADC(374, ADC_BLOCK_SIZE);
     }
