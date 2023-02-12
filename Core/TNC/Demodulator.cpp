@@ -22,11 +22,7 @@ void IDemodulator::startADC(uint32_t period, uint32_t block_size)
 {
     audio::set_adc_block_size(block_size);
 
-    htim6.Init.Period = period;
-    if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-    {
-        CxxErrorHandler();
-    }
+    htim6.Instance->ARR = period;
 
     if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
     {
