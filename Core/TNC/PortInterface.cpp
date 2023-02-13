@@ -75,7 +75,7 @@ int openCDC()
 
 void closeCDC()
 {
-    mobilinkd::tnc::getUsbPort()->close();
+    openNull();
 }
 
 int writeCDC(const uint8_t* data, uint32_t size, uint32_t timeout)
@@ -107,7 +107,7 @@ int openSerial()
 
 void closeSerial()
 {
-    mobilinkd::tnc::getSerialPort()->close();
+    openNull();
 }
 
 int writeSerial(const uint8_t* data, uint32_t size, uint32_t timeout)
