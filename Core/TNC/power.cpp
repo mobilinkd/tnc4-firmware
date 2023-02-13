@@ -1087,7 +1087,6 @@ void configure_power_on_connect()
 	__HAL_RCC_CRC_CLK_ENABLE();
 	__HAL_RCC_I2C1_CLK_ENABLE();
 	__HAL_RCC_RNG_CLK_ENABLE();
-	__HAL_RCC_USART3_CLK_ENABLE();
 }
 
 /*
@@ -1105,7 +1104,6 @@ void configure_power_on_disconnect()
 	__HAL_RCC_CRC_CLK_DISABLE();
 	__HAL_RCC_I2C1_CLK_DISABLE();
 	__HAL_RCC_RNG_CLK_DISABLE();
-	__HAL_RCC_USART3_CLK_DISABLE();
 }
 
  int vdd_counter = 0;

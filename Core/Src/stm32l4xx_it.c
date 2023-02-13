@@ -497,13 +497,16 @@ void EXTI1_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI1_IRQn 0 */
 
-	if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_1) != 0x00u) {
-		if (BT_STATE2_GPIO_Port->IDR & BT_STATE2_Pin) {
-			osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
-		} else {
-			osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
-		}
-	}
+    if (__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_1) != 0x00u) {
+        if (BT_STATE2_GPIO_Port->IDR & BT_STATE2_Pin) {
+            osMessagePut(ioEventQueueHandle, CMD_BT_DISCONNECT, 0);
+            __HAL_RCC_USART3_CLK_DISABLE();
+        } else {
+            // Ensure the USART is immediately available on connect.
+            __HAL_RCC_USART3_CLK_ENABLE();
+            osMessagePut(ioEventQueueHandle, CMD_BT_CONNECT, 0);
+        }
+    }
 
   /* USER CODE END EXTI1_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
