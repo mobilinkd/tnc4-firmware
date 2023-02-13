@@ -123,6 +123,7 @@ void startModulatorTask(void const*)
 
     // Wait until hardware is initialized before creating modulator.
     osMutexWait(hardwareInitMutexHandle, osWaitForever);
+    osMutexRelease(hardwareInitMutexHandle);
 
     while (true)
     {
