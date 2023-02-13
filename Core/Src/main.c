@@ -335,6 +335,11 @@ int main(void)
     WRITE_REG(BKUP_TNC_LOWPOWER_STATE, 0x0);
     HAL_PWR_DisableBkUpAccess();
 
+    if (shutdown_reg && TNC_LOWPOWER_DFU) {
+        // DFU leaves the system in a bad state. This starts clean.
+        HAL_NVIC_SystemReset();
+    }
+
     // TNC_LOWPOWER_RECONFIG is used to negotiate USB power when the device
     // is connected to USB while in a low-power state.
     go_back_to_sleep = !!(shutdown_reg & TNC_LOWPOWER_RECONFIG); // Need to return to sleep.

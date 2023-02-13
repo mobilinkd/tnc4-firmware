@@ -244,12 +244,14 @@ void startIOEventTask(void const*)
                 break;
             case CMD_BOOT_BUTTON_DOWN:
                 TNC_DEBUG("BOOT Down");
-                // If the TNC has USB power, reboot.  The boot pin is being
-                // held so it will boot into the bootloader.  This is a bit
-                // of a hack, since we really should check if the port is a
-                // standard USB port and not just a charging port.
-                if (gpio::VUSB_SENSE::get() and ioport == getNullPort())
+                // If the TNC is connected to a USB host, reboot.  The boot pin
+                // is being held so it will boot into the bootloader.
+                if (POWER_STATE_VBUS_HOST == powerState and getNullPort() == ioport)
                 {
+                    HAL_PWR_EnableBkUpAccess();
+                    WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_DFU);
+                    HAL_PWR_DisableBkUpAccess();
+
                     HAL_NVIC_SystemReset();
                 }
                 break;
