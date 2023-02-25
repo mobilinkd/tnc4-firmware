@@ -111,6 +111,7 @@ void startIOEventTask(void const*)
 
 		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
 		bm78_wait_until_ready();
+	    __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
 		osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
     } else if (powerState == PowerState::POWER_STATE_VBUS) {
     	setUsbConnected();
@@ -347,6 +348,7 @@ void startIOEventTask(void const*)
                 break;
             case CMD_USB_DISCOVERY_COMPLETE:
                 INFO("USB discovery complete");
+
                 if ((powerState != POWER_STATE_VBUS) && go_back_to_sleep) {
                     osTimerStop(usbShutdownTimerHandle);
                 	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
@@ -360,21 +362,19 @@ void startIOEventTask(void const*)
             	break;
             case CMD_USB_HOST_CONNECTED:
             	INFO("USB host connected");
-            	powerState = POWER_STATE_VBUS;
-          		MX_USB_DEVICE_Init();
-                if (!go_back_to_sleep) {
-            	    initCDC();
-            	}
-            	break;
-            case CMD_USB_HOST_ENUMERATED:
-            	INFO("USB host enumerated");
             	powerState = POWER_STATE_VBUS_HOST;
                 HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
                 charging_enabled = 1;
                 if (go_back_to_sleep) {
                     osTimerStop(usbShutdownTimerHandle);
-                	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
+                    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
+                } else {
+                    MX_USB_DEVICE_Init();
                 }
+            	break;
+            case CMD_USB_HOST_ENUMERATED:
+            	INFO("USB host enumerated");
+                initCDC();
             	break;
             case CMD_USB_DISCOVERY_ERROR:
                 // This happens when powering VUSB from a bench supply.
