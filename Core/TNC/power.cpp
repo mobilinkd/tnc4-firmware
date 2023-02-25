@@ -558,6 +558,7 @@ void configure_device_for_stop2(int8_t usb_connected)
 	HAL_PCD_MspDeInit(&hpcd_USB_OTG_FS);
 	HAL_ADCEx_EnterADCDeepPowerDownMode(&BATTERY_ADC_HANDLE);
 	HAL_ADCEx_EnterADCDeepPowerDownMode(&DEMODULATOR_ADC_HANDLE);
+    HAL_RTCEx_SetLowPowerCalib(&hrtc, RTC_LPCAL_SET);
 
 	// Ensure GPIO clocks are enabled.
     __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -1084,9 +1085,12 @@ void configure_power_on_connect()
     enable_adc_clk();
     __HAL_RCC_TIM6_CLK_ENABLE();
     __HAL_RCC_TIM7_CLK_ENABLE();
-	__HAL_RCC_CRC_CLK_ENABLE();
-	__HAL_RCC_I2C1_CLK_ENABLE();
-	__HAL_RCC_RNG_CLK_ENABLE();
+    __HAL_RCC_CRC_CLK_ENABLE();
+    __HAL_RCC_I2C1_CLK_ENABLE();
+    __HAL_RCC_RNG_CLK_ENABLE();
+    __HAL_RCC_OPAMP_CLK_ENABLE();
+    __HAL_RCC_DAC1_CLK_ENABLE();
+    HAL_RTCEx_SetLowPowerCalib(&hrtc, RTC_LPCAL_RESET);
 }
 
 /*
@@ -1101,9 +1105,12 @@ void configure_power_on_disconnect()
     disable_adc_clk();
     __HAL_RCC_TIM6_CLK_DISABLE();
     __HAL_RCC_TIM7_CLK_DISABLE();
-	__HAL_RCC_CRC_CLK_DISABLE();
-	__HAL_RCC_I2C1_CLK_DISABLE();
-	__HAL_RCC_RNG_CLK_DISABLE();
+    __HAL_RCC_CRC_CLK_DISABLE();
+    __HAL_RCC_I2C1_CLK_DISABLE();
+    __HAL_RCC_RNG_CLK_DISABLE();
+    __HAL_RCC_OPAMP_CLK_DISABLE();
+    __HAL_RCC_DAC1_CLK_DISABLE();
+    HAL_RTCEx_SetLowPowerCalib(&hrtc, RTC_LPCAL_SET);
 }
 
  int vdd_counter = 0;
