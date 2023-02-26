@@ -161,32 +161,9 @@ SECTIONS
   * If initialized variables will be placed in this section, 
   * the startup code needs to be modified to copy the init-values.  
   */
-  _siramtext = LOADADDR(.ramtext);
-  .ramtext :
-  {
-    . = ALIGN(4);
-    _sramtext = .;       /* create a global symbol at ram2 start */
-    *(.ramtext)
-    *(.ramtext*)
-    
-    . = ALIGN(4);
-    _eramtext = .;       /* create a global symbol at ram2 end */
-  }  >RAM2 AT> FLASH
-  
-  _sidata2 = LOADADDR(.data2);
-  .data2 :
-  {
-    . = ALIGN(4);
-    _sdata2 = .;       /* create a global symbol at ram2 start */
-    *(.data2)
-    *(.data2*)
-    
-    . = ALIGN(4);
-    _edata2 = .;       /* create a global symbol at ram2 end */
-  }  >RAM2 AT> FLASH
 
   _sirambss = LOADADDR(.rambss);
-  .rambss :
+  .rambss (NOLOAD) :
   {
     . = ALIGN(4);
     _srambss = .;       /* create a global symbol at bss2 start */

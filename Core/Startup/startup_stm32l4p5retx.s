@@ -81,36 +81,6 @@ LoopCopyDataInit:
 	adds	r2, r0, r1
 	cmp	r2, r3
 	bcc	CopyDataInit
-/* BEGIN RAMTEXT init code */
-    movs r1, #0
-    b  LoopCopyDataInit1
- CopyDataInit1:
-     ldr  r3, =_siramtext
-     ldr  r3, [r3, r1]
-     str  r3, [r0, r1]
-     adds  r1, r1, #4
- LoopCopyDataInit1:
-     ldr  r0, =_sramtext
-     ldr  r3, =_eramtext
-     adds  r2, r0, r1
-     cmp  r2, r3
-     bcc  CopyDataInit1
-/* END RAMTEXT init code */
-/* BEGIN DATA2 init code */
-    movs r1, #0
-    b  LoopCopyDataInit2
- CopyDataInit2:
-     ldr  r3, =_sidata2
-     ldr  r3, [r3, r1]
-     str  r3, [r0, r1]
-     adds  r1, r1, #4
- LoopCopyDataInit2:
-     ldr  r0, =_sdata2
-     ldr  r3, =_edata2
-     adds  r2, r0, r1
-     cmp  r2, r3
-     bcc  CopyDataInit2
-/* END TEXT2 init code */
 /* START BSS2 init code */
 	ldr	r2, =_srambss
 	b	LoopFillZerobss2

@@ -8,7 +8,7 @@
 
 namespace mobilinkd { namespace tnc { namespace hdlc {
 
-FrameSegmentPool frameSegmentPool __attribute__((section(".bss2")));
+FrameSegmentPool frameSegmentPool __attribute__((section(".rambss")));
 
 IoFramePool& ioFramePool() {
     static IoFramePool pool;
