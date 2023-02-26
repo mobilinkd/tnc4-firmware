@@ -175,7 +175,7 @@ SECTIONS
   } >RAM2
 
   _sisafedata = LOADADDR(.safedata);
-  .safedata :
+  .safedata (NOLOAD) :
   {
     . = ALIGN(4);
     _ssafedata = .;       /* create a global symbol at ram3 start */
