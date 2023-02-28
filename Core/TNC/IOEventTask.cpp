@@ -55,8 +55,8 @@ static void setUsbConnected()
 {
     powerState = POWER_STATE_VBUS;
     if (SystemCoreClock < 48000000) SysClock48();
-	HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
-    HAL_PCDEx_ActivateBCD(&HPCD);
+    HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
+    HAL_PCDEx_ActivateBCD(&HPCD); // Must call before calling HAL_PCDEx_BCD_VBUSDetect.
     HAL_PCDEx_BCD_VBUSDetect(&HPCD);
 }
 
@@ -93,6 +93,11 @@ void startIOEventTask(void const*)
         hardware.init();
         hardware.store();
     }
+
+    // This must be called to detect USB charging ports.
+    // Sysclock must be >= 16MHz for USB. On HSI here.
+    MX_USB_DEVICE_Init();
+    HAL_PCD_MspDeInit(&hpcd_USB_OTG_FS);
 
     if (!go_back_to_sleep) {
 		osMutexRelease(hardwareInitMutexHandle);
@@ -225,6 +230,7 @@ void startIOEventTask(void const*)
                 if (auto result = osTimerStart(powerOffTimerHandle, 2000) == osOK) {
                     INFO("shutdown timer started");
                 } else {
+                    (void) result;
                     ERROR("shutdown timer start failed = %d", result);
                 }
                 break;
@@ -351,8 +357,11 @@ void startIOEventTask(void const*)
 
                 if ((powerState != POWER_STATE_VBUS) && go_back_to_sleep) {
                     osTimerStop(usbShutdownTimerHandle);
-                	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
+                    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
+                } else if (POWER_STATE_VBUS_HOST == powerState) {
+                    HAL_PCD_Start(&HPCD);
                 }
+
                 break;
             case CMD_USB_CHARGER_CONNECTED:
             	INFO("USB charger connected");
@@ -365,12 +374,6 @@ void startIOEventTask(void const*)
             	powerState = POWER_STATE_VBUS_HOST;
                 HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
                 charging_enabled = 1;
-                if (go_back_to_sleep) {
-                    osTimerStop(usbShutdownTimerHandle);
-                    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
-                } else {
-                    MX_USB_DEVICE_Init();
-                }
             	break;
             case CMD_USB_HOST_ENUMERATED:
             	INFO("USB host enumerated");
