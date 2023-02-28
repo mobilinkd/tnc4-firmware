@@ -1764,6 +1764,8 @@ void SysClock2(void)
         _Error_Handler(__FILE__, __LINE__);
     }
 
+    TPI->ACPR = 7; // 16MHz
+
     // Disable HSE, enable MSI and set to 2MHz, disable PLL.
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_HSE;
     RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
@@ -1784,9 +1786,8 @@ void SysClock2(void)
         Error_Handler();
     }
 
-    INFO("CPU core clock: %luHz", SystemCoreClock);
-
-    HAL_RCCEx_EnableMSIPLLMode();
+    // Unusable when LSE is not driven externally.
+    // HAL_RCCEx_EnableMSIPLLMode();
 
     // Set voltage regulators to lowest power mode.
     if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE2) != HAL_OK) {
@@ -1850,6 +1851,8 @@ void SysClock48()
     {
     	_Error_Handler(__FILE__, __LINE__);
     }
+
+    TPI->ACPR = 7; // 16MHz
 
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
     RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
@@ -1932,6 +1935,8 @@ void SysClock72()
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
         _Error_Handler(__FILE__, __LINE__);
     }
+
+    TPI->ACPR = 7; // 16MHz
 
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE
             | RCC_OSCILLATORTYPE_MSI;
