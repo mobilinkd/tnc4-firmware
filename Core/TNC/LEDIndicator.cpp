@@ -66,7 +66,7 @@ constexpr std::array<LedAction, 10> BatteryLowIndication {
 	LedAction{-332, -83, 0, 1},
 };
 
-constexpr std::array<LedAction, 3> TurningOffIndication {
+constexpr std::array<LedAction, 2> TurningOffIndication {
 	LedAction{2000, 800, 0, 1},
 	LedAction{-10, -4, 0, 	200}
 };
@@ -138,7 +138,7 @@ constexpr std::array<LedAction, 6> BluetoothConnectionIndication {
  *
  *
  */
-constexpr std::array<LedAction, 10> USBConnectionIndication {
+constexpr std::array<LedAction, 9> USBConnectionIndication {
 	LedAction{0, 0, 200, 10},
 	LedAction{0, 0, -200, 10},
 	LedAction{0, 0, 0, 20},
