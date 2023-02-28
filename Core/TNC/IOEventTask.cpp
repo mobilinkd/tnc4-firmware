@@ -379,7 +379,7 @@ void startIOEventTask(void const*)
             case CMD_USB_DISCOVERY_ERROR:
                 // This happens when powering VUSB from a bench supply.
                 osTimerStop(usbShutdownTimerHandle);
-                // HAL_PCDEx_DeActivateBCD(&HPCD);
+                HAL_PCDEx_DeActivateBCD(&HPCD); // Not called on error in HAL_PCDEx_BCD_VBUSDetect
                 if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9) == GPIO_PIN_SET)
                 {
                     INFO("Not a recognized USB charging device");
@@ -472,7 +472,7 @@ void print_startup_banner()
         mac_address[0], mac_address[1], mac_address[2],
         mac_address[3], mac_address[4], mac_address[5]);
 
-    INFO("Serial Number: %d", mobilinkd_serial_number);
+    INFO("Serial Number: %lu", mobilinkd_serial_number);
     INFO("     Hardware: %04hx", mobilinkd_model);
     INFO("    Date Code: %04hx", mobilindk_date_code);
 
