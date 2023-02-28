@@ -52,39 +52,31 @@ extern "C" void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeD
 {
     UNUSED(hpcd);
 
-    static int downstream_port = 0;
-
     switch(msg)
     {
       case PCD_BCD_CONTACT_DETECTION:
     	  INFO("BCD insertion event detected");
-          downstream_port = 0;
           break;
 
       case PCD_BCD_STD_DOWNSTREAM_PORT:
           // Only charge after negotiation
           INFO("BCD detected standard downstream USB port");
           osMessagePut(ioEventQueueHandle, CMD_USB_HOST_CONNECTED, 0);
-          downstream_port = 1;
           break;
 
       case PCD_BCD_CHARGING_DOWNSTREAM_PORT:
     	  INFO("BCD detected charging downstream USB port");
           osMessagePut(ioEventQueueHandle, CMD_USB_HOST_CONNECTED, 0);
-          downstream_port = 1;
           break;
 
       case PCD_BCD_DEDICATED_CHARGING_PORT:
     	  INFO("BCD detected dedicated charging port");
           osMessagePut(ioEventQueueHandle, CMD_USB_CHARGER_CONNECTED, 0);
-          downstream_port = 0;
           break;
 
       case PCD_BCD_DISCOVERY_COMPLETED:
     	  INFO("BCD discovery complete");
-//          if (downstream_port) {
-              osMessagePut(ioEventQueueHandle, CMD_USB_DISCOVERY_COMPLETE, 0);
-//          }
+          osMessagePut(ioEventQueueHandle, CMD_USB_DISCOVERY_COMPLETE, 0);
           break;
 
       case PCD_BCD_ERROR:
@@ -837,8 +829,6 @@ void configure_gpio_wake_from_stop1()
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOC_CLK_ENABLE();
 
-    GPIO_InitTypeDef GPIO_InitStruct;
-
     HAL_PWREx_EnableInternalWakeUpLine();
 
     __HAL_RCC_GPIOB_CLK_DISABLE();
@@ -999,8 +989,8 @@ bool should_wake_from_stop1()
 {
 	bool result = false;
 
-	uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
-	uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
+//	uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
+//	uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
 
 	__asm volatile ( "cpsie i" );
 

@@ -61,7 +61,6 @@ extern USBD_StatusTypeDef USBD_LL_BatteryCharging(USBD_HandleTypeDef *pdev);
 /* Private functions ---------------------------------------------------------*/
 
 /* USER CODE BEGIN 1 */
-static void SystemClockConfig_Resume(void);
 
 /* USER CODE END 1 */
 extern void SystemClock_Config(void);
@@ -841,14 +840,6 @@ void USBD_static_free(void *p)
 }
 
 /* USER CODE BEGIN 5 */
-/**
-  * @brief  Configures system clock after wake-up from USB resume callBack:
-  *         enable HSI, PLL and select PLL as system clock source.
-  * @retval None
-  */
-static void SystemClockConfig_Resume(void)
-{
-  SystemClock_Config();
-}
+
 /* USER CODE END 5 */
 

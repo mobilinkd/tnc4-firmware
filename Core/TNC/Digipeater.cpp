@@ -46,7 +46,7 @@ void startDigipeaterTask(void* arg)
 
     if (!digi->can_repeat(frame)) continue;
 
-    auto digi_frame = digi->rewrite_frame(frame);
+//    auto digi_frame = digi->rewrite_frame(frame);
 
   }
 }

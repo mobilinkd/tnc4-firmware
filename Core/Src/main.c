@@ -325,10 +325,7 @@ int main(void)
 
     __HAL_RCC_CLEAR_RESET_FLAGS();
 
-    uint32_t start = HAL_GetTick();
-
     uint32_t shutdown_reg = READ_REG(BKUP_TNC_LOWPOWER_STATE);
-    uint32_t power_config_reg = READ_REG(BKUP_POWER_CONFIG);
 
     // Reset the BKUP_TNC_LOWPOWER_STATE register.
     HAL_PWR_EnableBkUpAccess();
