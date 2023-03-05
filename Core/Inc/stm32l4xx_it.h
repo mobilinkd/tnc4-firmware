@@ -80,7 +80,7 @@ void DMAMUX1_OVR_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
 void delay(uint32_t ms);
-void error_code(int8_t a, int8_t b);
+void error_code(int8_t a, int8_t b) __attribute__ ((noreturn));
 
 void EXTI0_IRQHandler(void);
 void EXTI1_IRQHandler(void);
