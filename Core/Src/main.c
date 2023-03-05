@@ -484,15 +484,6 @@ int main(void)
 
     encode_serial_number();
 
-    if (!go_back_to_sleep) {
-        MX_USART3_UART_Init(); // Initialize UART.
-        HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
-        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET); // BT module out of reset.
-        HAL_Delay(1);
-        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
-        bm78_wait_until_ready();
-    }
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
 
@@ -574,6 +565,7 @@ int main(void)
     MX_CRC_Init();
     MX_RNG_Init();
     MX_I2C1_Init();
+    MX_IWDG_Init();
 
     // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
     if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024)
@@ -590,6 +582,13 @@ int main(void)
         Error_Handler();
 
     if (!go_back_to_sleep) {
+        MX_USART3_UART_Init(); // Initialize UART.
+        HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET); // BT module on.
+        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET); // BT module out of reset.
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
+        bm78_wait_until_ready();
+
         // Initialize the BM78 Bluetooth module. Note that a CPU speed of 2MHz
         // here will cause this to fail.
         if (!bm78_initialized() || reset_requested) {
@@ -1992,9 +1991,9 @@ void _Error_Handler(char *file, int line)
 
   go_back_to_sleep = 0;
 
-  error_code(0x11, 0x11);
+  vTaskSuspendAll(); // Will eventually cause IWDG reset.
 
-  NVIC_SystemReset();
+  error_code(MORSE_1, MORSE_1);
 }
 
 
@@ -2011,7 +2010,7 @@ void powerOffTimerCallback(void const * argument)
 
 void batteryCheckCallback(void const * argument)
 {
-	HAL_IWDG_Refresh(&hiwdg);
+	HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in batteryCheckCallback.
 
 	if (is_battery_low()) {
         HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
