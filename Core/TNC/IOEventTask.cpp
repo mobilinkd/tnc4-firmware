@@ -114,10 +114,15 @@ void startIOEventTask(void const*)
 			SysClock2();
 		}
 
-		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_SET);
-		bm78_wait_until_ready();
-	    __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
-		osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
+        osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
+
+        // Ensure nothing is connected at this point because TNC must get
+        // BT device interrupts to configure connection properly.
+        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET); // BT module reset.
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
+        bm78_wait_until_ready();
+        __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
     } else if (powerState == PowerState::POWER_STATE_VBUS) {
     	setUsbConnected();
     	osTimerStart(usbShutdownTimerHandle, 2000);
@@ -130,14 +135,18 @@ void startIOEventTask(void const*)
 
 	bool battery_low = !!(READ_REG(BKUP_TNC_LOWPOWER_STATE) & TNC_LOWPOWER_LOW_BAT);
 
+	bool power_button_down = false;
+
     /* Infinite loop */
     for (;;)
     {
         osEvent evt = osMessageGet(ioEventQueueHandle, 100);
-        if (hdlc::ioFramePool().size() != 0)
-            HAL_IWDG_Refresh(&hiwdg);
-        else
-            CxxErrorHandler();
+        if (hdlc::ioFramePool().size() != 0) {
+            // If the IO event loop is inactive or the frame pool is empty
+            // for too long, the TNC is essentially non-functional.
+            HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in IO loop (primary refresh).
+        }
+
         if (evt.status != osEventMessage)
             continue;
 
@@ -157,7 +166,7 @@ void startIOEventTask(void const*)
                     INFO("CDC Opened");
                     configure_power_on_connect();
                     getModulator().init(hardware);	// Need to re-init modulator after reconfig.
-                    indicate_connected_via_usb();
+                    if (!power_button_down) indicate_connected_via_usb();
                     osMessagePut(audioInputQueueHandle,
                         audio::DEMODULATOR, osWaitForever);
                 }
@@ -220,12 +229,13 @@ void startIOEventTask(void const*)
                     HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
                 	configure_power_on_disconnect();
-                    indicate_waiting_to_connect();
+                	if (!power_button_down) indicate_waiting_to_connect();
                     SysClock2();
                 }
                 break;
             case CMD_POWER_BUTTON_DOWN:
                 INFO("Power Down");
+                power_button_down = true;
                 indicate_turning_off();
                 if (auto result = osTimerStart(powerOffTimerHandle, 2000) == osOK) {
                     INFO("shutdown timer started");
@@ -236,6 +246,7 @@ void startIOEventTask(void const*)
                 break;
             case CMD_POWER_BUTTON_UP:
             	INFO("Power Up");
+            	power_button_down = false;
             	osTimerStop(powerOffTimerHandle);
             	switch (connectionState) {
             	case ConnectionState::DISCONNECTED:
@@ -264,6 +275,7 @@ void startIOEventTask(void const*)
                 break;
             case CMD_BOOT_BUTTON_UP:
                 TNC_DEBUG("BOOT Up");
+#if 0
                 osMessagePut(audioInputQueueHandle,
                     audio::AUTO_ADJUST_INPUT_LEVEL,
                     osWaitForever);
@@ -277,6 +289,7 @@ void startIOEventTask(void const*)
                     osMessagePut(audioInputQueueHandle,
                         audio::IDLE, osWaitForever);
                 }
+#endif
                 break;
             case CMD_BT_CONNECT:
                 TNC_DEBUG("BT Connect");
@@ -286,7 +299,7 @@ void startIOEventTask(void const*)
                     configure_power_on_connect();
                     HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
                     INFO("BT Opened");
-                    indicate_connected_via_ble();
+                    if (!power_button_down) indicate_connected_via_ble();
                     getModulator().init(hardware);	// Need to re-init modulator after reconfig.
                     osMessagePut(audioInputQueueHandle,
                         audio::DEMODULATOR, osWaitForever);
@@ -305,8 +318,8 @@ void startIOEventTask(void const*)
                 kiss::getAFSKTestTone().stop();
                 INFO("BT Closed");
                 if (powerState == POWER_STATE_VBAT || powerState == POWER_STATE_VBUS_CHARGER) SysClock2();
-            	configure_power_on_disconnect();
-                indicate_waiting_to_connect();
+                configure_power_on_disconnect();
+                if (!power_button_down) indicate_waiting_to_connect();
                 break;
             case CMD_SET_PTT_SIMPLEX:
                 getModulator().set_ptt(&simplexPtt);
