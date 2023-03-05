@@ -137,8 +137,6 @@ struct AFSKModulator : Modulator
 
     void fill(uint16_t* buffer, bool bit)
     {
-        HAL_IWDG_Refresh(&hiwdg);
-
         for (size_t i = 0; i != BIT_LEN; i++)
         {
             int s = sin_table[pos_];
@@ -188,8 +186,6 @@ struct AFSKModulator : Modulator
 
     void empty()
     {
-        HAL_IWDG_Refresh(&hiwdg);
-
         switch (running_) {
         case 1:
             running_ = 0;

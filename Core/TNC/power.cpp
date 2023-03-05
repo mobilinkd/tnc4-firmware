@@ -886,7 +886,7 @@ bool should_wake_from_stop2(int8_t usb_connected)
 
 	__HAL_RCC_PWR_CLK_ENABLE();
 
-	HAL_IWDG_Refresh(&hiwdg);
+	HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG while checking wake-up event.
 
 	HAL_Init();
 	SystemClock_Config();
@@ -910,7 +910,7 @@ bool should_wake_from_stop2(int8_t usb_connected)
 		SysClock2();
 		indicate_battery_low();
 		while (SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) {
-			HAL_IWDG_Refresh(&hiwdg);
+			HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG while button pressed.
 		}
 		return result;
 	}

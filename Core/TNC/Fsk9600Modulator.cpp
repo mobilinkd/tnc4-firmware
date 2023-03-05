@@ -61,7 +61,6 @@ void Fsk9600Modulator::init(const kiss::Hardware& hw)
 
 void Fsk9600Modulator::fill(uint16_t* buffer, bool bit)
 {
-    HAL_IWDG_Refresh(&hiwdg);
     switch (level)
     {
     case Level::HIGH:

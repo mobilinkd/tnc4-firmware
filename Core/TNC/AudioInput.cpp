@@ -206,8 +206,6 @@ void demodulatorTask() {
             continue;
         }
 
-//        HAL_IWDG_Refresh(&hiwdg);
-
         auto block = (adc_pool_type::chunk_type*) evt.value.p;
         auto samples = (int16_t*) block->buffer;
 

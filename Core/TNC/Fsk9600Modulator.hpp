@@ -135,8 +135,6 @@ struct Fsk9600Modulator : Modulator
 
     void empty()
     {
-        HAL_IWDG_Refresh(&hiwdg);
-
         switch (state)
         {
         case State::STARTING:
