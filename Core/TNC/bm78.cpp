@@ -479,17 +479,16 @@ void bm78_wait_until_ready()
 {
     auto start = HAL_GetTick();
     // Must wait until P1_5 (BT_STATE2) is high and P0_4 (BT_STATE1) is low.
-    GPIO_PinState bt_state1, bt_state2;
+    bool bt_state1, bt_state2;
     do {
         if (HAL_GetTick() > start + 2000) CxxErrorHandler(); // Timed out.
 
         __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE2_Pin);
         __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE1_Pin);
-        HAL_Delay(10);
-        bt_state2 = HAL_GPIO_ReadPin(BT_STATE2_GPIO_Port, BT_STATE2_Pin);
-        bt_state1 = HAL_GPIO_ReadPin(BT_STATE1_GPIO_Port, BT_STATE1_Pin);
-        TNC_DEBUG("bt_state2=%d, bt_state1=%d", bt_state2, bt_state1);
-    } while (!((bt_state2 == GPIO_PIN_SET) and (bt_state1 == GPIO_PIN_RESET)));
+        bt_state2 = (BT_STATE2_GPIO_Port->IDR & BT_STATE2_Pin) != 0;
+        bt_state1 = (BT_STATE1_GPIO_Port->IDR & BT_STATE1_Pin) != 0;
+
+    } while (!((bt_state2) and (!bt_state1)));
 }
 
 uint32_t eeprom_crc()

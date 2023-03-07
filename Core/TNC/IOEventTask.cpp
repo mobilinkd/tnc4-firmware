@@ -67,6 +67,11 @@ void startIOEventTask(void const*)
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
     disable_adc_clk(); // Battery ADC is not in use now.
+    HAL_IWDG_Refresh(&hiwdg);
+
+    init_ioport();
+    initCDC();
+    initSerial();
 
     /* Configure GPIO pin : VUSB_SENSE for input so it can be read. */
     GPIO_InitStruct.Pin = VUSB_SENSE_Pin;
@@ -78,7 +83,6 @@ void startIOEventTask(void const*)
     INFO("GPIOA = 0x%04lx", GPIOA->IDR);
     powerState = (GPIOA->IDR & GPIO_PIN_9) ? PowerState::POWER_STATE_VBUS : PowerState::POWER_STATE_VBAT;
     if (!go_back_to_sleep) {
-        indicate_on();
         print_startup_banner();
     }
 

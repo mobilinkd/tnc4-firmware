@@ -284,6 +284,8 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
+    GPIO_PinState power_switch_state = !!(SW_POWER_GPIO_Port->IDR & SW_POWER_Pin);
+
     // Log the cause of the reset.
     switch (resetCause) {
     case RESET_CAUSE_SOFT:
@@ -471,9 +473,6 @@ int main(void)
         go_back_to_sleep = 1;
     }
 
-    GPIO_PinState power_switch_state =
-            !!(SW_POWER_GPIO_Port->IDR & SW_POWER_Pin);
-
     SCB->SHCSR |= 0x70000;    // Enable fault handlers;
     if (!go_back_to_sleep) {
         indicate_turning_on();    // LEDs on during boot.
@@ -483,79 +482,6 @@ int main(void)
     }
 
     encode_serial_number();
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
-
-  /* USER CODE END 2 */
-
-  /* Create the mutex(es) */
-  /* definition and creation of hardwareInitMutex */
-  osMutexStaticDef(hardwareInitMutex, &hardwareInitMutexControlBlock);
-  hardwareInitMutexHandle = osMutexCreate(osMutex(hardwareInitMutex));
-
-  /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
-  osMutexWait(hardwareInitMutexHandle, osWaitForever);
-
-  /* USER CODE END RTOS_MUTEX */
-
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
-
-  /* Create the timer(s) */
-  /* definition and creation of usbShutdownTimer */
-  osTimerStaticDef(usbShutdownTimer, usbShutdownTimerCallback, &usbShutdownTimerControlBlock);
-  usbShutdownTimerHandle = osTimerCreate(osTimer(usbShutdownTimer), osTimerOnce, NULL);
-
-  /* definition and creation of powerOffTimer */
-  osTimerStaticDef(powerOffTimer, powerOffTimerCallback, &powerOffTimerControlBlock);
-  powerOffTimerHandle = osTimerCreate(osTimer(powerOffTimer), osTimerOnce, NULL);
-
-  /* definition and creation of batteryCheckTimer */
-  osTimerStaticDef(batteryCheckTimer, batteryCheckCallback, &batteryCheckTimerControlBlock);
-  batteryCheckTimerHandle = osTimerCreate(osTimer(batteryCheckTimer), osTimerPeriodic, NULL);
-
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-
-  /* USER CODE END RTOS_TIMERS */
-
-  /* Create the queue(s) */
-  /* definition and creation of ioEventQueue */
-  osMessageQStaticDef(ioEventQueue, 16, uint32_t, ioEventQueueBuffer, &ioEventQueueControlBlock);
-  ioEventQueueHandle = osMessageCreate(osMessageQ(ioEventQueue), NULL);
-
-  /* definition and creation of audioInputQueue */
-  osMessageQStaticDef(audioInputQueue, 8, void*, audioInputQueueBuffer, &audioInputQueueControlBlock);
-  audioInputQueueHandle = osMessageCreate(osMessageQ(audioInputQueue), NULL);
-
-  /* definition and creation of hdlcInputQueue */
-  osMessageQStaticDef(hdlcInputQueue, 3, uint32_t, hdlcInputQueueBuffer, &hdlcInputQueueControlBlock);
-  hdlcInputQueueHandle = osMessageCreate(osMessageQ(hdlcInputQueue), NULL);
-
-  /* definition and creation of hdlcOutputQueue */
-  osMessageQStaticDef(hdlcOutputQueue, 8, uint32_t, hdlcOutputQueueBuffer, &hdlcOutputQueueControlBlock);
-  hdlcOutputQueueHandle = osMessageCreate(osMessageQ(hdlcOutputQueue), NULL);
-
-  /* definition and creation of dacOutputQueue */
-  osMessageQStaticDef(dacOutputQueue, 128, uint8_t, dacOutputQueueBuffer, &dacOutputQueueControlBlock);
-  dacOutputQueueHandle = osMessageCreate(osMessageQ(dacOutputQueue), NULL);
-
-  /* definition and creation of adcInputQueue */
-  osMessageQStaticDef(adcInputQueue, 3, void*, adcInputQueueBuffer, &adcInputQueueControlBlock);
-  adcInputQueueHandle = osMessageCreate(osMessageQ(adcInputQueue), NULL);
-
-  /* definition and creation of m17EncoderInputQueue */
-  osMessageQStaticDef(m17EncoderInputQueue, 3, void*, m17EncoderInputQueueBuffer, &m17EncoderInputQueueControlBlock);
-  m17EncoderInputQueueHandle = osMessageCreate(osMessageQ(m17EncoderInputQueue), NULL);
-
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-
-#pragma GCC diagnostic pop
-
     // ADC1 already initialized and calibrated.
     MX_ADC2_Init();
     MX_DAC1_Init();
@@ -566,20 +492,6 @@ int main(void)
     MX_RNG_Init();
     MX_I2C1_Init();
     MX_IWDG_Init();
-
-    // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
-    if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024)
-            != HAL_OK)
-        Error_Handler();
-    if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK)
-        Error_Handler();
-    if (HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK)
-        Error_Handler();
-    if (HAL_OPAMP_Start(&hopamp1) != HAL_OK)
-        Error_Handler();
-    if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED)
-            != HAL_OK)
-        Error_Handler();
 
     if (!go_back_to_sleep) {
         MX_USART3_UART_Init(); // Initialize UART.
@@ -596,11 +508,23 @@ int main(void)
         } else {
             bm78_initialize_mac_address();
         }
-    }
 
-    init_ioport();
-    initCDC();
-    initSerial();
+        HAL_IWDG_Refresh(&hiwdg);
+
+        // Initialize the DC offset DAC and the PGA op amp.  Calibrate the ADC.
+        if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_2, DAC_ALIGN_12B_R, 1024)
+                != HAL_OK)
+            Error_Handler();
+        if (HAL_DAC_Start(&hdac1, DAC_CHANNEL_2) != HAL_OK)
+            Error_Handler();
+        if (HAL_OPAMP_SelfCalibrate(&hopamp1) != HAL_OK)
+            Error_Handler();
+        if (HAL_OPAMP_Start(&hopamp1) != HAL_OK)
+            Error_Handler();
+        if (HAL_ADCEx_Calibration_Start(&DEMODULATOR_ADC_HANDLE, ADC_SINGLE_ENDED)
+                != HAL_OK)
+            Error_Handler();
+    }
 
     // Initialize option bytes.
     FLASH_OBProgramInitTypeDef obInit = { 0 };
@@ -668,7 +592,89 @@ int main(void)
 
 #endif
 
-    MX_IWDG_Init();
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wwrite-strings"    // cmsis-os is not const-correct.
+
+    // At this point we start creating CMSIS-OS/FreeRTOS data structures.
+    // Upon the first call to oxMutexCreate(), timers, and specifically
+    // htim8, which is used for the LED indicator, stop working correctly
+    // until the kernel starts. So we want to keep this section as short
+    // and as quick as possible.
+
+  /* USER CODE END 2 */
+
+  /* Create the mutex(es) */
+  /* definition and creation of hardwareInitMutex */
+  osMutexStaticDef(hardwareInitMutex, &hardwareInitMutexControlBlock);
+  hardwareInitMutexHandle = osMutexCreate(osMutex(hardwareInitMutex));
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+
+  // We want to acquire the mutex before the kernel starts. IOEventTask
+  // expects it to be held when it starts and releases it after it has
+  // read the configuration from EEPROM, when it is safe to initialize
+  // the subsystems which depend on global configuration.
+
+  osMutexWait(hardwareInitMutexHandle, osWaitForever);
+
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* Create the timer(s) */
+  /* definition and creation of usbShutdownTimer */
+  osTimerStaticDef(usbShutdownTimer, usbShutdownTimerCallback, &usbShutdownTimerControlBlock);
+  usbShutdownTimerHandle = osTimerCreate(osTimer(usbShutdownTimer), osTimerOnce, NULL);
+
+  /* definition and creation of powerOffTimer */
+  osTimerStaticDef(powerOffTimer, powerOffTimerCallback, &powerOffTimerControlBlock);
+  powerOffTimerHandle = osTimerCreate(osTimer(powerOffTimer), osTimerOnce, NULL);
+
+  /* definition and creation of batteryCheckTimer */
+  osTimerStaticDef(batteryCheckTimer, batteryCheckCallback, &batteryCheckTimerControlBlock);
+  batteryCheckTimerHandle = osTimerCreate(osTimer(batteryCheckTimer), osTimerPeriodic, NULL);
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+
+  /* USER CODE END RTOS_TIMERS */
+
+  /* Create the queue(s) */
+  /* definition and creation of ioEventQueue */
+  osMessageQStaticDef(ioEventQueue, 16, uint32_t, ioEventQueueBuffer, &ioEventQueueControlBlock);
+  ioEventQueueHandle = osMessageCreate(osMessageQ(ioEventQueue), NULL);
+
+  /* definition and creation of audioInputQueue */
+  osMessageQStaticDef(audioInputQueue, 8, void*, audioInputQueueBuffer, &audioInputQueueControlBlock);
+  audioInputQueueHandle = osMessageCreate(osMessageQ(audioInputQueue), NULL);
+
+  /* definition and creation of hdlcInputQueue */
+  osMessageQStaticDef(hdlcInputQueue, 3, uint32_t, hdlcInputQueueBuffer, &hdlcInputQueueControlBlock);
+  hdlcInputQueueHandle = osMessageCreate(osMessageQ(hdlcInputQueue), NULL);
+
+  /* definition and creation of hdlcOutputQueue */
+  osMessageQStaticDef(hdlcOutputQueue, 8, uint32_t, hdlcOutputQueueBuffer, &hdlcOutputQueueControlBlock);
+  hdlcOutputQueueHandle = osMessageCreate(osMessageQ(hdlcOutputQueue), NULL);
+
+  /* definition and creation of dacOutputQueue */
+  osMessageQStaticDef(dacOutputQueue, 128, uint8_t, dacOutputQueueBuffer, &dacOutputQueueControlBlock);
+  dacOutputQueueHandle = osMessageCreate(osMessageQ(dacOutputQueue), NULL);
+
+  /* definition and creation of adcInputQueue */
+  osMessageQStaticDef(adcInputQueue, 3, void*, adcInputQueueBuffer, &adcInputQueueControlBlock);
+  adcInputQueueHandle = osMessageCreate(osMessageQ(adcInputQueue), NULL);
+
+  /* definition and creation of m17EncoderInputQueue */
+  osMessageQStaticDef(m17EncoderInputQueue, 3, void*, m17EncoderInputQueueBuffer, &m17EncoderInputQueueControlBlock);
+  m17EncoderInputQueueHandle = osMessageCreate(osMessageQ(m17EncoderInputQueue), NULL);
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+
+#pragma GCC diagnostic pop
 
   /* USER CODE END RTOS_QUEUES */
 
