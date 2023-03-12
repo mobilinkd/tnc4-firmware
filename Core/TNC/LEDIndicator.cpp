@@ -66,9 +66,10 @@ constexpr std::array<LedAction, 10> BatteryLowIndication {
     LedAction{-332, -83, 0, 1},
 };
 
-constexpr std::array<LedAction, 2> TurningOffIndication {
-    LedAction{3000, 1200, 0, 1},
-    LedAction{-10, -4, 0, 300}
+constexpr std::array<LedAction, 3> TurningOffIndication {
+    LedAction{2000, 800, 0, 1},
+    LedAction{-10, -4, 0, 200},
+    LedAction{0, 0, 0, 1000}
 };
 
 /**
