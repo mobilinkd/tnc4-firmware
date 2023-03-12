@@ -88,6 +88,7 @@ extern "C" void HAL_PCDEx_BCD_Callback(PCD_HandleTypeDef *hpcd, PCD_BCD_MsgTypeD
     }
 }
 
+
 extern "C" void enable_vdd()
 {
     mobilinkd::tnc::_enable_vdd();
@@ -186,25 +187,25 @@ extern "C" WakeFromType wakeup() {
 				&& HAL_GPIO_ReadPin(VUSB_SENSE_GPIO_Port, VUSB_SENSE_Pin)
 						== GPIO_PIN_RESET) {
 			// Wake from USB
-			printf("USB power lost\r\n");
+			INFO("USB power lost");
 			wake = WAKE_UP;
 		} else if (RCC->CSR & RCC_CSR_SFTRSTF) {
-			printf("software reset\r\n");
+			INFO("software reset");
 			wake = WAKE_UP;
 		} else if (RCC->CSR & RCC_CSR_PINRSTF) {
-			printf("hardware reset\r\n");
+			INFO("hardware reset");
 			wake = WAKE_UP;
 		} else if (RCC->CSR & RCC_CSR_BORRSTF) {
-			printf("brown-out reset\r\n");
+			INFO("brown-out reset");
 			wake = WAKE_UP;
 		} else if (__HAL_RTC_WAKEUPTIMER_GET_FLAG(&hrtc, RTC_FLAG_WUTF)
 				!= RESET) {
-			printf("RTC wake up\r\n");
+			INFO("RTC wake up");
 			__HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
 			wake = WAKE_UP;
 		} else {
-			printf("unknown reset, RCC->CSR=0x%08lx\r\n", RCC->CSR);
-			printf("unknown reset, RTC->SR=0x%08lx\r\n", RTC->SR);
+			INFO("unknown reset, RCC->CSR=0x%08lx", RCC->CSR);
+			INFO("unknown reset, RTC->SR=0x%08lx", RTC->SR);
 			wake = SHUTDOWN;
 		}
 		__HAL_RCC_CLEAR_RESET_FLAGS();
@@ -425,17 +426,17 @@ uint32_t get_bat_level()
     uint32_t vrefcal = ((uint16_t)*(VREFINT_CAL_ADDR));
     uint32_t vdda = 3000 * (vrefcal << 2) / vrefint;
 
-    printf("Vrefint = %lu\r\n", vrefint);
-    printf("Vrefcal = %lu\r\n", vrefcal);
-    printf("Vbat = %lu (raw)\r\n", vbat);
+    INFO("Vrefint = %lu", vrefint);
+    INFO("Vrefcal = %lu", vrefcal);
+    INFO("Vbat = %lu (raw)", vbat);
 
     // Order of operations is important to avoid underflow.
     vbat = ((vbat * 3750 / 1000) * vdda) / VMAX;
     uint32_t vref = vdda * vrefint / VMAX;
 
-    printf("Vref = %lumV\r\n", vref);
-    printf("Vdda = %lumV\r\n", vdda);
-    printf("Vbat = %lumV\r\n", vbat);
+    INFO("Vref = %lumV", vref);
+    INFO("Vdda = %lumV", vdda);
+    INFO("Vbat = %lumV", vbat);
 
     return vbat;
 }
@@ -1048,6 +1049,7 @@ void enable_interrupts()
 {
 	// This also enables VUSB_SENSE.
     HAL_NVIC_ClearPendingIRQ(SW_POWER_EXTI_IRQn);
+    HAL_NVIC_ClearPendingIRQ(VUSB_SENSE_EXTI_IRQn);
     HAL_NVIC_SetPriority(SW_POWER_EXTI_IRQn,5, 0);
     HAL_NVIC_EnableIRQ(SW_POWER_EXTI_IRQn);
 

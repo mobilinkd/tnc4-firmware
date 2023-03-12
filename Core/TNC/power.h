@@ -71,11 +71,12 @@ typedef enum {
 } WakeFromType;
 
 typedef enum PowerState {
-	POWER_STATE_UNKNOWN,		// Unknown connection state
-	POWER_STATE_VBAT,			// Running from VBAT only
-	POWER_STATE_VBUS,			// VBUS detected but has not enumerated
-	POWER_STATE_VBUS_HOST,		// VBUS detected and enumerated by host
-	POWER_STATE_VBUS_CHARGER	// VBUS detected battery charger
+    POWER_STATE_UNKNOWN,		// Unknown connection state
+    POWER_STATE_VBAT,			// Running from VBAT only
+    POWER_STATE_VBUS,			// VBUS detected but has not enumerated
+    POWER_STATE_VBUS_HOST,		// VBUS detected upstream host
+    POWER_STATE_VBUS_ENUM,      // VBUS detected enumerated by host
+    POWER_STATE_VBUS_CHARGER	// VBUS detected battery charger
 } PowerStateType;
 
 extern PowerStateType powerState;
