@@ -135,7 +135,7 @@ void error_code(int8_t a, int8_t b)
 
 	a &= 0x1F;
 	b &= 0x1F;
-	while (1)
+	for (uint8_t j = 0; j != 3; ++j)
 	{
 		int8_t aa = a;
 		for (int i = 0; i != 5; ++i)
@@ -152,6 +152,7 @@ void error_code(int8_t a, int8_t b)
 		}
 		brk2();
 	}
+	NVIC_SystemReset();
 }
 
 /* USER CODE END 0 */
