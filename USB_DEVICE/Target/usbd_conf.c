@@ -262,10 +262,9 @@ void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd)
   USBD_LL_Suspend((USBD_HandleTypeDef*)hpcd->pData);
   /* Enter in STOP mode. */
   /* USER CODE BEGIN 2 */
+  osMessagePut(ioEventQueueHandle, CMD_USB_SUSPEND, 0);
   if (hpcd->Init.low_power_enable)
   {
-	 osMessagePut(ioEventQueueHandle, CMD_USB_SUSPEND, 0);
-
     /* Set SLEEPDEEP bit and SleepOnExit of Cortex System Control Register. */
     // SCB->SCR |= (uint32_t)((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
   }
@@ -287,12 +286,12 @@ void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd)
   __HAL_PCD_UNGATE_PHYCLOCK(hpcd);
 
   /* USER CODE BEGIN 3 */
+  osMessagePut(ioEventQueueHandle, CMD_USB_RESUME, 0);
   if (hpcd->Init.low_power_enable)
   {
     /* Reset SLEEPDEEP bit of Cortex System Control Register. */
     // SCB->SCR &= (uint32_t)~((uint32_t)(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk));
     // SystemClockConfig_Resume();
-	  osMessagePut(ioEventQueueHandle, CMD_USB_RESUME, 0);
 	  usb_resume = 1;
   }
   /* USER CODE END 3 */
@@ -354,6 +353,7 @@ static void PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
 void HAL_PCD_DisconnectCallback(PCD_HandleTypeDef *hpcd)
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 {
+  INFO("HAL_PCD_DisconnectCallback");
   USBD_LL_DevDisconnected((USBD_HandleTypeDef*)hpcd->pData);
 }
 

@@ -76,7 +76,7 @@ void startIOEventTask(void const*)
     /* Configure GPIO pin : VUSB_SENSE for input so it can be read. */
     GPIO_InitStruct.Pin = VUSB_SENSE_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(VUSB_SENSE_GPIO_Port, &GPIO_InitStruct);
 
@@ -185,13 +185,20 @@ void startIOEventTask(void const*)
                 break;
             case CMD_USB_RESUME:
                 INFO("USB resume");
-            	if (charging_enabled)
-            		HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
+                if (POWER_STATE_VBUS_ENUM == powerState) {
+                    if (charging_enabled) {
+                        HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
+                    }
+                }
                 break;
             case CMD_USB_SUSPEND:
                 INFO("USB suspend");
-            	if (charging_enabled)
-            		HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
+                if (POWER_STATE_VBUS_ENUM == powerState) {
+                    HAL_PCD_Stop(&HPCD); // Disconect; remove 1.5k pullup.
+                    if (charging_enabled) {
+                        HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
+                    }
+                }
             	break;
             case CMD_USB_DISCONNECTED:
                 INFO("VBUS Lost");
@@ -268,12 +275,11 @@ void startIOEventTask(void const*)
                 TNC_DEBUG("BOOT Down");
                 // If the TNC is connected to a USB host, reboot.  The boot pin
                 // is being held so it will boot into the bootloader.
-                if (POWER_STATE_VBUS_HOST == powerState and getNullPort() == ioport)
+                if ((POWER_STATE_VBUS_ENUM == powerState || POWER_STATE_VBUS_HOST == powerState) and getNullPort() == ioport)
                 {
                     HAL_PWR_EnableBkUpAccess();
                     WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_DFU);
                     HAL_PWR_DisableBkUpAccess();
-
                     HAL_NVIC_SystemReset();
                 }
                 break;
@@ -334,31 +340,34 @@ void startIOEventTask(void const*)
             case CMD_SHUTDOWN:
                 INFO("STOP mode");
 
+                // Need to reset the TNC if connected to shut down cleanly.
+                if (connectionState != ConnectionState::DISCONNECTED) {
+                    HAL_PWR_EnableBkUpAccess();
+                    WRITE_REG(BKUP_TNC_LOWPOWER_STATE,
+                            (powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB) |
+                            TNC_LOWPOWER_STOP2 | TNC_LOWPOWER_RECONFIG);
+                    HAL_PWR_DisableBkUpAccess();
+                    HAL_NVIC_SystemReset();
+                }
+
+                HAL_NVIC_DisableIRQ(SW_POWER_EXTI_IRQn); // Disable SW_BUTTON and VUSB_SENSE.
+
+                // The USB PCD is stopped to disconnect the 1.5k data line pull-up.
+                // This is necessary to detect VUSB changes while asleep.
+                HAL_PCD_Stop(&HPCD);
+
                 // Disable Bluetooth Module
                 HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
                 HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
                 HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET);
                 configure_power_on_disconnect();
 
+                HAL_Delay(100); // Allow VUSB_SENSE time to de-energize from 1.5k pullup leakage.
+                if (!(GPIOA->IDR & GPIO_PIN_9)) powerState = POWER_STATE_VBAT;
+
                 HAL_PWR_EnableBkUpAccess();
-            	WRITE_REG(BKUP_POWER_CONFIG, (powerOnViaUSB() ? POWER_CONFIG_WAKE_FROM_USB : 0) | (powerOffViaUSB() ? POWER_CONFIG_SLEEP_ON_USB : 0));
+                WRITE_REG(BKUP_POWER_CONFIG, (powerOnViaUSB() ? POWER_CONFIG_WAKE_FROM_USB : 0) | (powerOffViaUSB() ? POWER_CONFIG_SLEEP_ON_USB : 0));
                 HAL_PWR_DisableBkUpAccess();
-
-                if (connectionState != ConnectionState::DISCONNECTED) {
-                    HAL_PWR_EnableBkUpAccess();
-            		WRITE_REG(BKUP_TNC_LOWPOWER_STATE,
-            				(powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB) |
-							TNC_LOWPOWER_STOP2 | TNC_LOWPOWER_RECONFIG);
-            	    HAL_PWR_DisableBkUpAccess();
-            	    HAL_NVIC_SystemReset();
-                }
-
-                if (connectionState != ConnectionState::DISCONNECTED) {
-					osMessagePut(audioInputQueueHandle, audio::IDLE,
-						osWaitForever);
-					osThreadYield();
-					connectionState = ConnectionState::DISCONNECTED;
-                }
 
                 stop2((powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB) |
                 		(battery_low ? TNC_LOWPOWER_LOW_BAT : 0));
@@ -381,21 +390,22 @@ void startIOEventTask(void const*)
 
                 break;
             case CMD_USB_CHARGER_CONNECTED:
-            	INFO("USB charger connected");
-            	powerState = POWER_STATE_VBUS_CHARGER;
+                INFO("USB charger connected");
+                powerState = POWER_STATE_VBUS_CHARGER;
                 HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
                 charging_enabled = 1;
-            	break;
+                break;
             case CMD_USB_HOST_CONNECTED:
-            	INFO("USB host connected");
-            	powerState = POWER_STATE_VBUS_HOST;
+                INFO("USB host connected");
+                powerState = POWER_STATE_VBUS_HOST;
                 HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_RESET);
                 charging_enabled = 1;
-            	break;
+                break;
             case CMD_USB_HOST_ENUMERATED:
-            	INFO("USB host enumerated");
+                INFO("USB host enumerated");
+                powerState = POWER_STATE_VBUS_ENUM;
                 initCDC();
-            	break;
+                break;
             case CMD_USB_DISCOVERY_ERROR:
                 // This happens when powering VUSB from a bench supply.
                 osTimerStop(usbShutdownTimerHandle);
