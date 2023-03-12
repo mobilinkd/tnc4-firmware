@@ -198,6 +198,7 @@ void startIOEventTask(void const*)
                     if (charging_enabled) {
                         HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
                     }
+                    powerState = POWER_STATE_VBUS_HOST;
                 }
             	break;
             case CMD_USB_DISCONNECTED:
