@@ -1832,7 +1832,7 @@ void SysClock48()
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
 
-    if (osKernelRunning()) {
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
     	osDelay(10);
     } else {
     	HAL_Delay(10);
@@ -1917,7 +1917,7 @@ void SysClock72()
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
 
-    if (osKernelRunning()) {
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
         osDelay(10);
     } else {
         HAL_Delay(10);
