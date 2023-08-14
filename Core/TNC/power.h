@@ -23,19 +23,19 @@
  * - STOP_NO_POWER -- Stopped, USB host did not negotiate 500mA
  * - STOP_CHARGING -- Stopped, USB host negotiated 500mA
  * - STOP_NO_POWER_SUSPEND -- Stopped, USB host did not negotiate
- *   	500mA, suspended
+ *       500mA, suspended
  * - STOP_CHARGING_SUSPEND -- Stopped, USB host negotiated 500mA,
- * 		suspended
+ *         suspended
  * - DISCONNECTED -- Powered on, no USB, not connected.
  * - DISCONNECTED_NO_POWER -- Powered on, USB host did not negotiate
- * 		500mA, not connected.
+ *         500mA, not connected.
  * - DISCONNECTED_CHARGING -- Powered on, USB host negotiated 500mA, not
- * 		connected.
+ *         connected.
  * - DISCONNECTED_CHARGE_ADAPTER -- Powered on, USB charging adapter, not
- * 		connected.
+ *         connected.
  * - BT_CONNECTED -- Powered on, no USB, BT connected.
  * - BT_CONNECTED_NO_POWER -- Powered on, BT connected, USB host did not
- * 		negotiate 500mA.
+ *         negotiate 500mA.
  *
  * In SHUTDOWN_BAT mode, the VDD domain is powered down, and the TNC is
  * configured to wake from button, OVP, and VDD_SENSE going high. If the
@@ -59,24 +59,24 @@ extern volatile uint32_t usb_resume;
 typedef enum {WAKE_UP, SHUTDOWN} WakeType;
 
 typedef enum {
-	WAKE_FROM_RUNNING,	// Restart while not asleep
-	WAKE_FROM_OVP,		// OVP event (SYS_WKUP4)
-	WAKE_FROM_BUTTON,	// Power button event (SYS_WKUP5)
-	WAKE_FROM_VUSB,		// VDD present (SYS_WKUP2)
-	WAKE_FROM_HW_RESET,	// Hardware reset
-	WAKE_FROM_SW_RESET,	// Software reset
-	WAKE_FROM_BOR,		// Brown-out reset
-	WAKE_FROM_RTC,		// Real-time clock alarm
-	WAKE_FROM_UNKNOWN	// Unknown wake-up event
+    WAKE_FROM_RUNNING,    // Restart while not asleep
+    WAKE_FROM_OVP,        // OVP event (SYS_WKUP4)
+    WAKE_FROM_BUTTON,    // Power button event (SYS_WKUP5)
+    WAKE_FROM_VUSB,        // VDD present (SYS_WKUP2)
+    WAKE_FROM_HW_RESET,    // Hardware reset
+    WAKE_FROM_SW_RESET,    // Software reset
+    WAKE_FROM_BOR,        // Brown-out reset
+    WAKE_FROM_RTC,        // Real-time clock alarm
+    WAKE_FROM_UNKNOWN    // Unknown wake-up event
 } WakeFromType;
 
 typedef enum PowerState {
-    POWER_STATE_UNKNOWN,		// Unknown connection state
-    POWER_STATE_VBAT,			// Running from VBAT only
-    POWER_STATE_VBUS,			// VBUS detected but has not enumerated
-    POWER_STATE_VBUS_HOST,		// VBUS detected upstream host
+    POWER_STATE_UNKNOWN,        // Unknown connection state
+    POWER_STATE_VBAT,            // Running from VBAT only
+    POWER_STATE_VBUS,            // VBUS detected but has not enumerated
+    POWER_STATE_VBUS_HOST,        // VBUS detected upstream host
     POWER_STATE_VBUS_ENUM,      // VBUS detected enumerated by host
-    POWER_STATE_VBUS_CHARGER	// VBUS detected battery charger
+    POWER_STATE_VBUS_CHARGER    // VBUS detected battery charger
 } PowerStateType;
 
 extern PowerStateType powerState;
@@ -167,7 +167,7 @@ void stop2(uint32_t low_power_state);
  * will result in a hard reset.
  *
  * @param low_power_state is the power state to store in the backup domain
- * 	register @p BKUP_TNC_LOWPOWER_STATE.
+ *     register @p BKUP_TNC_LOWPOWER_STATE.
  */
 void shutdown(uint32_t low_power_state);
 
@@ -195,7 +195,7 @@ void powerdown(void);
  * level and shut down if too low.
  *
  * @post This will either return with the event which caused the TNC to wake
- * 	or it re-enter shutdown mode.
+ *     or it re-enter shutdown mode.
  *
  * @return the event which caused the TNC to wake up.
  */
@@ -259,15 +259,15 @@ void wakeup(PowerType type);
 
 void configure_gpio_for_shutdown();
 void configure_device_for_stop2(int8_t usb_connected);
-void configure_device_for_stop1();		// USB host connected.
+void configure_device_for_stop1();        // USB host connected.
 void configure_gpio_wake_from_stop2(int8_t);
-void configure_gpio_wake_from_stop1();	// USB host connected.
+void configure_gpio_wake_from_stop1();    // USB host connected.
 void power_down_vdd_for_shutdown(void);
 void configure_gpio_wake_from_shutdown(void);
 bool should_wake_from_stop2(int8_t usb_connected);
 bool should_wake_from_stop1();
 void configure_device_for_wake_from_stop2(bool was_usb_connected, bool is_usb_connected);
-void configure_device_for_wake_from_stop1(bool is_usb_connected); 	// Was USB host connected.
+void configure_device_for_wake_from_stop1(bool is_usb_connected);     // Was USB host connected.
 void power_down_vdd_for_stop(int8_t usb_connected);
 void initialize_audio();
 void enable_interrupts();
