@@ -46,6 +46,34 @@ extern IWDG_HandleTypeDef hiwdg;
 
 volatile ConnectionState connectionState = ConnectionState::DISCONNECTED;
 
+/**
+ * Update the SysClock depending on power and connection state.
+ *
+ * The SysClock must be >= 16MHz when USB is connected. This is an STM32 USB
+ * hardware requirement. Some PCD functions will silently fail if the clock
+ * is too slow. The main result is increased current consumption. this is a
+ * problem during shutdown, where current can be 1mA rather than 5uA. To
+ * simplify things, the SysClock48 is used if the clock is less than 48MHz.
+ *
+ * The SysClock will be set to the appropriate frequency for the demodulator
+ * when the connection is established. This is always >= 48MHz. (Today it is
+ * only 48MHz.)
+ */
+void updateSysClock()
+{
+    vTaskSuspendAll();
+
+    if ((PowerState::POWER_STATE_VBAT == powerState)
+        && (ConnectionState::DISCONNECTED == connectionState))
+    {
+        SysClock2();
+    } else {
+        if (SystemCoreClock < 48000000) SysClock48();
+    }
+
+    xTaskResumeAll();
+}
+
 static PTT getPttStyle(const mobilinkd::tnc::kiss::Hardware& hardware)
 {
     return hardware.options & KISS_OPTION_PTT_SIMPLEX ? PTT::SIMPLEX : PTT::MULTIPLEX;
@@ -54,7 +82,7 @@ static PTT getPttStyle(const mobilinkd::tnc::kiss::Hardware& hardware)
 static void setUsbConnected()
 {
     powerState = POWER_STATE_VBUS;
-    if (SystemCoreClock < 48000000) SysClock48();
+    updateSysClock();
     HAL_PCD_MspInit(&hpcd_USB_OTG_FS);
     HAL_PCDEx_ActivateBCD(&HPCD); // Must call before calling HAL_PCDEx_BCD_VBUSDetect.
     HAL_PCDEx_BCD_VBUSDetect(&HPCD);
@@ -115,7 +143,7 @@ void startIOEventTask(void const*)
 		if (powerState == PowerState::POWER_STATE_VBUS) {
 			setUsbConnected();
 		} else {
-			SysClock2();
+			updateSysClock();
 		}
 
         osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
@@ -193,8 +221,19 @@ void startIOEventTask(void const*)
                 break;
             case CMD_USB_SUSPEND:
                 INFO("USB suspend");
+                // Suspend will be called before enumeration. Do not stop PCD
+                // in POWER_STATE_VBUS_HOST otherwise enumeration will fail.
+                // Normal case here after POWER_STATE_VBUS_ENUM is the USB
+                // cable has been disconnected. In order to properly detect
+                // VUSB loss, the 1.5k pull-up needs to be disconnected. The
+                // down side is that USB suspend/resume when enumerated no
+                // longer works properly.
+                //
+                // Maybe the best thing to do here if not connected via BT is
+                // to just shut down.
                 if (POWER_STATE_VBUS_ENUM == powerState) {
-                    HAL_PCD_Stop(&HPCD); // Disconect; remove 1.5k pullup.
+                    INFO("PCD Stop");
+                    HAL_PCD_Stop(&HPCD); // Disconnect; remove 1.5k pull-up.
                     if (charging_enabled) {
                         HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
                     }
@@ -218,7 +257,7 @@ void startIOEventTask(void const*)
                 if (powerOffViaUSB()) {
                 	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
                 } else if (connectionState == ConnectionState::DISCONNECTED) {
-                    SysClock2();
+                    updateSysClock();
                     break;
                 } else if (connectionState == ConnectionState::BT_CONNECTED) {
                 	break;
@@ -242,7 +281,7 @@ void startIOEventTask(void const*)
 
                 	configure_power_on_disconnect();
                 	if (!power_button_down) indicate_waiting_to_connect();
-                    SysClock2();
+                    updateSysClock();
                 }
                 break;
             case CMD_POWER_BUTTON_DOWN:
@@ -308,7 +347,7 @@ void startIOEventTask(void const*)
                 {
                 	connectionState = ConnectionState::BT_CONNECTED;
                     configure_power_on_connect();
-                    HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
+                    if (POWER_STATE_VBUS_ENUM == powerState) HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
                     INFO("BT Opened");
                     if (!power_button_down) indicate_connected_via_ble();
                     getModulator().init(hardware);	// Need to re-init modulator after reconfig.
@@ -321,14 +360,12 @@ void startIOEventTask(void const*)
                 INFO("BT Disconnect");
                 closeSerial();
                 connectionState = ConnectionState::DISCONNECTED;
-                if (powerState != POWER_STATE_VBAT) {
-                	HAL_PCD_EP_ClrStall(&HPCD, CDC_CMD_EP);
-                }
+                if (POWER_STATE_VBUS_ENUM == powerState) HAL_PCD_EP_ClrStall(&HPCD, CDC_CMD_EP);
                 osMessagePut(audioInputQueueHandle, audio::IDLE,
                     osWaitForever);
                 kiss::getAFSKTestTone().stop();
                 INFO("BT Closed");
-                if (powerState == POWER_STATE_VBAT || powerState == POWER_STATE_VBUS_CHARGER) SysClock2();
+                updateSysClock();
                 configure_power_on_disconnect();
                 if (!power_button_down) indicate_waiting_to_connect();
                 break;
@@ -340,7 +377,6 @@ void startIOEventTask(void const*)
                 break;
             case CMD_SHUTDOWN:
                 INFO("STOP mode");
-
                 // Need to reset the TNC if connected to shut down cleanly.
                 if (connectionState != ConnectionState::DISCONNECTED) {
                     HAL_PWR_EnableBkUpAccess();
@@ -355,7 +391,9 @@ void startIOEventTask(void const*)
 
                 // The USB PCD is stopped to disconnect the 1.5k data line pull-up.
                 // This is necessary to detect VUSB changes while asleep.
-                HAL_PCD_Stop(&HPCD);
+                if (POWER_STATE_VBUS_ENUM == powerState || POWER_STATE_VBUS_HOST == powerState) {
+                    HAL_PCD_Stop(&HPCD); // Disconnect; remove 1.5k pullup.
+                }
 
                 // Disable Bluetooth Module
                 HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
@@ -405,6 +443,7 @@ void startIOEventTask(void const*)
             case CMD_USB_HOST_ENUMERATED:
                 INFO("USB host enumerated");
                 powerState = POWER_STATE_VBUS_ENUM;
+                if (ConnectionState::BT_CONNECTED == connectionState) HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
                 initCDC();
                 break;
             case CMD_USB_DISCOVERY_ERROR:
