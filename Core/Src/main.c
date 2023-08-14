@@ -256,7 +256,7 @@ int main(void)
     // remain active after restart.
     HAL_PWR_EnableBkUpAccess();
     HAL_PWREx_DisablePullUpPullDownConfig();
-    HAL_PWREx_DisableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_9);	// VDD_EN
+    HAL_PWREx_DisableGPIOPullDown(PWR_GPIO_C, PWR_GPIO_BIT_9);    // VDD_EN
     HAL_PWR_DisableBkUpAccess();
 
   /* USER CODE END Init */
@@ -380,86 +380,86 @@ int main(void)
     }
 
 #if 0
-	// Currently only TNC_LOWPOWER_SHUTDOWN when VBAT is low.
-	if (shutdown_reg & TNC_LOWPOWER_SHUTDOWN) {
-		WakeType wake = SHUTDOWN;
-		INFO("wake up");
-		// OVP will glitch for 1ms when VUSB is enabled.
-		if ((resetCause == RESET_CAUSE_WUF) && (wakeEvent & PWR_WAKEUP_PIN4)
-				&& !(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {	// OVP Error
-			ERROR("over voltage");
-			indicate_ovp_error();
-			HAL_Delay(3000);	// Indicate OVP Error for at least 3 seconds.
-			while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
-				// Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
-				if (HAL_GetTick() - start > 300000) {
-					if (is_battery_low()) {
-						WARN("low battery");
-						indicate_battery_low();
-						HAL_Delay(3030);
-						shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
-					}
-					start = HAL_GetTick();
-				}
-			}
-			if ((shutdown_reg & TNC_LOWPOWER_VBAT)
-					&& (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
-				wake = WAKE_UP;
-			}
-		} else if ((resetCause == RESET_CAUSE_WUF)
-				&& (wakeEvent & PWR_WAKEUP_PIN5)) {					// SW_POWER
-			INFO("power switch pressed");
-			wake = SHUTDOWN;
-			while ((SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) != 0) {
-				if (HAL_GetTick() - start > 3000) {
-					wake = WAKE_UP;
-					break;
-				}
-			}
-			if (wake == SHUTDOWN) {
-				INFO("power switch press too short");
-			}
-		} else if (resetCause == RESET_CAUSE_WUF
-				&& (wakeEvent & PWR_WAKEUP_PIN2)
-				&& (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) { 	// VDD_SENSE
-			INFO("USB power available");
-			// Power must be present for more than 2 seconds.
-			uint32_t start = HAL_GetTick();
-			while (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
-				if (HAL_GetTick() - start > 2000) {
-					wake = WAKE_UP;
-					break;
-				}
-			}
-			if (wake == WAKE_UP
-					&& !(power_config_reg & POWER_CONFIG_WAKE_FROM_USB)) {
-				wake = SHUTDOWN;
-			}
-		} else if ((shutdown_reg & TNC_LOWPOWER_VUSB)
-				&& !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
-			// Wake from USB
-			INFO("USB power lost");
-			wake = SHUTDOWN;
-		} else if (resetCause == RESET_CAUSE_WUTF) {
-			INFO("RTC wake up");
-			__HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
-			wake = WAKE_UP;
-		} else if (resetCause != RESET_CAUSE_UNKNOWN) {
-			WARN("Spurious wake up event");
-			wake = WAKE_UP;
-		} else {
-			WARN("Unknown wake up event");
-			wake = WAKE_UP;
-		}
+    // Currently only TNC_LOWPOWER_SHUTDOWN when VBAT is low.
+    if (shutdown_reg & TNC_LOWPOWER_SHUTDOWN) {
+        WakeType wake = SHUTDOWN;
+        INFO("wake up");
+        // OVP will glitch for 1ms when VUSB is enabled.
+        if ((resetCause == RESET_CAUSE_WUF) && (wakeEvent & PWR_WAKEUP_PIN4)
+                && !(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {    // OVP Error
+            ERROR("over voltage");
+            indicate_ovp_error();
+            HAL_Delay(3000);    // Indicate OVP Error for at least 3 seconds.
+            while (!(OVP_ERROR_GPIO_Port->IDR & OVP_ERROR_Pin)) {
+                // Read battery level and shutdown if too low, otherwise sleep 5 minutes and repeat.
+                if (HAL_GetTick() - start > 300000) {
+                    if (is_battery_low()) {
+                        WARN("low battery");
+                        indicate_battery_low();
+                        HAL_Delay(3030);
+                        shutdown(TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT);
+                    }
+                    start = HAL_GetTick();
+                }
+            }
+            if ((shutdown_reg & TNC_LOWPOWER_VBAT)
+                    && (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+                wake = WAKE_UP;
+            }
+        } else if ((resetCause == RESET_CAUSE_WUF)
+                && (wakeEvent & PWR_WAKEUP_PIN5)) {                    // SW_POWER
+            INFO("power switch pressed");
+            wake = SHUTDOWN;
+            while ((SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) != 0) {
+                if (HAL_GetTick() - start > 3000) {
+                    wake = WAKE_UP;
+                    break;
+                }
+            }
+            if (wake == SHUTDOWN) {
+                INFO("power switch press too short");
+            }
+        } else if (resetCause == RESET_CAUSE_WUF
+                && (wakeEvent & PWR_WAKEUP_PIN2)
+                && (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {     // VDD_SENSE
+            INFO("USB power available");
+            // Power must be present for more than 2 seconds.
+            uint32_t start = HAL_GetTick();
+            while (VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin) {
+                if (HAL_GetTick() - start > 2000) {
+                    wake = WAKE_UP;
+                    break;
+                }
+            }
+            if (wake == WAKE_UP
+                    && !(power_config_reg & POWER_CONFIG_WAKE_FROM_USB)) {
+                wake = SHUTDOWN;
+            }
+        } else if ((shutdown_reg & TNC_LOWPOWER_VUSB)
+                && !(VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin)) {
+            // Wake from USB
+            INFO("USB power lost");
+            wake = SHUTDOWN;
+        } else if (resetCause == RESET_CAUSE_WUTF) {
+            INFO("RTC wake up");
+            __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+            wake = WAKE_UP;
+        } else if (resetCause != RESET_CAUSE_UNKNOWN) {
+            WARN("Spurious wake up event");
+            wake = WAKE_UP;
+        } else {
+            WARN("Unknown wake up event");
+            wake = WAKE_UP;
+        }
 
-		if (wake == SHUTDOWN) {
-			shutdown(
-					VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin ?
-							TNC_LOWPOWER_VUSB : TNC_LOWPOWER_VBAT);
-		}
+        if (wake == SHUTDOWN) {
+            shutdown(
+                    VUSB_SENSE_GPIO_Port->IDR & VUSB_SENSE_Pin ?
+                            TNC_LOWPOWER_VUSB : TNC_LOWPOWER_VBAT);
+        }
 
-		INFO("waking...");
-	}
+        INFO("waking...");
+    }
 #endif
 
     // Don't start up at all if battery is low.
@@ -1197,21 +1197,21 @@ void MX_RNG_Init(void)
 #define RNG_MAGIC_NUMBER       0x17590ABC  /* Magic Number */
 #define RNG_HTCR_VAL           0x0000AA74  /* HTCR Value */
 
-	__IO uint32_t  HTCR_VALUE=0;
-	//put this after the RNG initializition and before the infinite loop
-	RNG->CR = 0x40F00D40; // config A
-	HAL_Delay(20);
-	/* RNG HTCR value setting 0xAA74 */
-	/*!< magic number must be written immediately before to RNG_HTCRG */
-	RNG->HTCR = RNG_MAGIC_NUMBER;
-	RNG->HTCR = RNG_HTCR_VAL;
-	HTCR_VALUE = 0 ;
-	RNG->HTCR = RNG_MAGIC_NUMBER;
-	HTCR_VALUE = RNG->HTCR;
-	RNG->HTCR = RNG_MAGIC_NUMBER;
-	while ( HTCR_VALUE != RNG_HTCR_VAL); // check that HTCR value is correctly set
-	RNG->CR = 0x00F00D4C; // config A + RNG EN =1, IE=1
-	HAL_Delay(1); /* a delay to wait for CONDRST to take effect */
+    __IO uint32_t  HTCR_VALUE=0;
+    //put this after the RNG initializition and before the infinite loop
+    RNG->CR = 0x40F00D40; // config A
+    HAL_Delay(20);
+    /* RNG HTCR value setting 0xAA74 */
+    /*!< magic number must be written immediately before to RNG_HTCRG */
+    RNG->HTCR = RNG_MAGIC_NUMBER;
+    RNG->HTCR = RNG_HTCR_VAL;
+    HTCR_VALUE = 0 ;
+    RNG->HTCR = RNG_MAGIC_NUMBER;
+    HTCR_VALUE = RNG->HTCR;
+    RNG->HTCR = RNG_MAGIC_NUMBER;
+    while ( HTCR_VALUE != RNG_HTCR_VAL); // check that HTCR value is correctly set
+    RNG->CR = 0x00F00D4C; // config A + RNG EN =1, IE=1
+    HAL_Delay(1); /* a delay to wait for CONDRST to take effect */
 
   /* USER CODE END RNG_Init 2 */
 
@@ -1817,8 +1817,8 @@ void SysClock2(void)
 
 void SysClock48()
 {
-	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
     if (__HAL_RCC_GET_PLL_OSCSOURCE() == RCC_PLLSOURCE_HSE && HAL_RCC_GetHCLKFreq() == 48000000) return;
 
@@ -1833,9 +1833,9 @@ void SysClock48()
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
 
     if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
-    	osDelay(10);
+        osDelay(10);
     } else {
-    	HAL_Delay(10);
+        HAL_Delay(10);
     }
 
     vTaskSuspendAll();
@@ -1845,7 +1845,7 @@ void SysClock48()
     HAL_RCCEx_DisableMSIPLLMode();
     if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
     {
-    	Error_Handler();
+        Error_Handler();
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1854,7 +1854,7 @@ void SysClock48()
     // Use HSI for SysClock while reconfiguring clocks.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
     {
-    	_Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE__, __LINE__);
     }
 
     TPI->ACPR = 7; // 16MHz
@@ -1873,8 +1873,8 @@ void SysClock48()
     HAL_StatusTypeDef result = HAL_RCC_OscConfig(&RCC_OscInitStruct);
     if (result != HAL_OK)
     {
-    	ERROR("HAL_RCC_OscConfig = %d", result);
-    	_Error_Handler(__FILE__, __LINE__);
+        ERROR("HAL_RCC_OscConfig = %d", result);
+        _Error_Handler(__FILE__, __LINE__);
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1883,8 +1883,8 @@ void SysClock48()
     result = HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
     if (result != HAL_OK)
     {
-    	ERROR("HAL_RCC_ClockConfig = %d", result);
-    	_Error_Handler(__FILE__, __LINE__);
+        ERROR("HAL_RCC_ClockConfig = %d", result);
+        _Error_Handler(__FILE__, __LINE__);
     }
 
     TPI->ACPR = 23;
@@ -2005,32 +2005,32 @@ void _Error_Handler(char *file, int line)
 
 void usbShutdownTimerCallback(void const * argument)
 {
-	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
+    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
 }
 
 void powerOffTimerCallback(void const * argument)
 {
     INFO("shutdown timer triggered");
-	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
+    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
 }
 
 void batteryCheckCallback(void const * argument)
 {
-	HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in batteryCheckCallback.
+    HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in batteryCheckCallback.
 
-	if (is_battery_low()) {
+    if (is_battery_low()) {
         HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
         HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
 
         vTaskSuspendAll();
-		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET); // BT module on.
-		_configure_power_on_disconnect();
+        HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET); // BT module on.
+        _configure_power_on_disconnect();
 
         HAL_PWR_EnableBkUpAccess();
-		WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT | TNC_LOWPOWER_STOP2 | TNC_LOWPOWER_RECONFIG);
-	    HAL_PWR_DisableBkUpAccess();
-	    HAL_NVIC_SystemReset();
-	}
+        WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT | TNC_LOWPOWER_STOP2 | TNC_LOWPOWER_RECONFIG);
+        HAL_PWR_DisableBkUpAccess();
+        HAL_NVIC_SystemReset();
+    }
 }
 
 /* USER CODE END 4 */
@@ -2088,7 +2088,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM8) {
-	  LED_TIMER_PeriodElapsedCallback();
+      LED_TIMER_PeriodElapsedCallback();
   }
   /* USER CODE END Callback 1 */
 }

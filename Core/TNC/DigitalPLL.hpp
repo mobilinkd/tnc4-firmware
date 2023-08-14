@@ -53,40 +53,40 @@ constexpr std::array<float, 7> loop_coeffs = {
 template <typename T>
 struct BaseDigitalPLL
 {
-	typedef T float_type;
-	typedef pll::PLLResult<float_type> result_type;
+    typedef T float_type;
+    typedef pll::PLLResult<float_type> result_type;
 
-	float_type sample_rate_;
-	float_type symbol_rate_;
-	float_type sps_; 			///< Samples per symbol
-	float_type limit_;			///< Samples per symbol / 2
-	libafsk::BaseHysteresis<float_type> lock_;
+    float_type sample_rate_;
+    float_type symbol_rate_;
+    float_type sps_;             ///< Samples per symbol
+    float_type limit_;            ///< Samples per symbol / 2
+    libafsk::BaseHysteresis<float_type> lock_;
     FirFilter<1, pll::loop_coeffs.size()> loop_filter_{pll::loop_coeffs.data()};
     IirFilter<5> lock_filter_{pll::lock_b, pll::lock_a};
 
-	bool last_;
-	float_type count_;
-	
-	bool sample_;
-	float_type jitter_;
-	uint8_t bits_;
+    bool last_;
+    float_type count_;
+    
+    bool sample_;
+    float_type jitter_;
+    uint8_t bits_;
 
-	BaseDigitalPLL(float_type sample_rate, float_type symbol_rate)
-	: sample_rate_(sample_rate), symbol_rate_(symbol_rate)
-	, sps_(sample_rate / symbol_rate)
-	, limit_(sps_ / float_type(2.0))
+    BaseDigitalPLL(float_type sample_rate, float_type symbol_rate)
+    : sample_rate_(sample_rate), symbol_rate_(symbol_rate)
+    , sps_(sample_rate / symbol_rate)
+    , limit_(sps_ / float_type(2.0))
     , lock_(sps_ * float_type(0.03), sps_ * float_type(0.15), 1, 0)
-	, last_(false), count_(0), sample_(false)
-	, jitter_(0.0), bits_(1)
-	{}
+    , last_(false), count_(0), sample_(false)
+    , jitter_(0.0), bits_(1)
+    {}
 
-	result_type operator()(bool input)
-	{
-		sample_ = false;
-		
+    result_type operator()(bool input)
+    {
+        sample_ = false;
+        
         if (input != last_ or bits_ > 16) {
-			// Record transition.
-			last_ = input;
+            // Record transition.
+            last_ = input;
 
             if (count_ > limit_) {
                 count_ -= sps_;
@@ -98,31 +98,31 @@ struct BaseDigitalPLL
             const float_type offset = count_ / bits_;
             const float_type jitter = loop_filter_(offset);
             const float_type abs_offset = std::abs(offset) + adjust;
-			jitter_ = lock_filter_(abs_offset);
+            jitter_ = lock_filter_(abs_offset);
 
-			count_ -= jitter / 2;
+            count_ -= jitter / 2;
 
             bits_ = 1;
-		} else {
-			if (count_ > limit_) {
-				sample_ = true;
-				count_ -= sps_;
-				++bits_;
-			}
-		}
+        } else {
+            if (count_ > limit_) {
+                sample_ = true;
+                count_ -= sps_;
+                ++bits_;
+            }
+        }
 
-		count_ += 1;
-		result_type result = {jitter_, sample_, locked()};
-		return result;
-	}
-	
-	bool locked() {
-		return lock_(jitter_);
-	}
-	
-	bool sample() const {
-		return sample_;
-	}
+        count_ += 1;
+        result_type result = {jitter_, sample_, locked()};
+        return result;
+    }
+    
+    bool locked() {
+        return lock_(jitter_);
+    }
+    
+    bool sample() const {
+        return sample_;
+    }
 };
 
 typedef BaseDigitalPLL<double> DigitalPLL;

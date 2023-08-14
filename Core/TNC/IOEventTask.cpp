@@ -132,19 +132,19 @@ void startIOEventTask(void const*)
     HAL_PCD_MspDeInit(&hpcd_USB_OTG_FS);
 
     if (!go_back_to_sleep) {
-		osMutexRelease(hardwareInitMutexHandle);
+        osMutexRelease(hardwareInitMutexHandle);
 
-		hardware.debug();
+        hardware.debug();
 
-		initialize_audio();
-		setPtt(getPttStyle(hardware));
-		indicate_waiting_to_connect();
+        initialize_audio();
+        setPtt(getPttStyle(hardware));
+        indicate_waiting_to_connect();
 
-		if (powerState == PowerState::POWER_STATE_VBUS) {
-			setUsbConnected();
-		} else {
-			updateSysClock();
-		}
+        if (powerState == PowerState::POWER_STATE_VBUS) {
+            setUsbConnected();
+        } else {
+            updateSysClock();
+        }
 
         osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
 
@@ -156,18 +156,18 @@ void startIOEventTask(void const*)
         bm78_wait_until_ready();
         __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
     } else if (powerState == PowerState::POWER_STATE_VBUS) {
-    	setUsbConnected();
-    	osTimerStart(usbShutdownTimerHandle, 2000);
+        setUsbConnected();
+        osTimerStart(usbShutdownTimerHandle, 2000);
     } else {
-    	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
+        osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
     }
 
-	enable_interrupts();
-	configure_power_on_disconnect();
+    enable_interrupts();
+    configure_power_on_disconnect();
 
-	bool battery_low = !!(READ_REG(BKUP_TNC_LOWPOWER_STATE) & TNC_LOWPOWER_LOW_BAT);
+    bool battery_low = !!(READ_REG(BKUP_TNC_LOWPOWER_STATE) & TNC_LOWPOWER_LOW_BAT);
 
-	bool power_button_down = false;
+    bool power_button_down = false;
 
     /* Infinite loop */
     for (;;)
@@ -189,7 +189,7 @@ void startIOEventTask(void const*)
             case CMD_USB_CDC_CONNECT:
                 if ((connectionState == ConnectionState::DISCONNECTED) && openCDC())
                 {
-                	connectionState = ConnectionState::USB_CONNECTED;
+                    connectionState = ConnectionState::USB_CONNECTED;
                     // Disable Bluetooth Module
                     HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
                     HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
@@ -197,7 +197,7 @@ void startIOEventTask(void const*)
 
                     INFO("CDC Opened");
                     configure_power_on_connect();
-                    getModulator().init(hardware);	// Need to re-init modulator after reconfig.
+                    getModulator().init(hardware);    // Need to re-init modulator after reconfig.
                     if (!power_button_down) indicate_connected_via_usb();
                     osMessagePut(audioInputQueueHandle,
                         audio::DEMODULATOR, osWaitForever);
@@ -206,8 +206,8 @@ void startIOEventTask(void const*)
             case CMD_USB_CONNECTED:
                 INFO("VBUS Detected");
                 if (powerState != POWER_STATE_VBAT) {
-                	ERROR("Duplicate event");
-                	break;
+                    ERROR("Duplicate event");
+                    break;
                 }
                 setUsbConnected();
                 break;
@@ -239,12 +239,12 @@ void startIOEventTask(void const*)
                     }
                     powerState = POWER_STATE_VBUS_HOST;
                 }
-            	break;
+                break;
             case CMD_USB_DISCONNECTED:
                 INFO("VBUS Lost");
                 if (powerState == POWER_STATE_VBAT) {
-                	ERROR("Duplicate event");
-                	break;
+                    ERROR("Duplicate event");
+                    break;
                 }
                 powerState = POWER_STATE_VBAT;
 #ifdef STM32L433xx
@@ -255,18 +255,18 @@ void startIOEventTask(void const*)
                 charging_enabled = 0;
 
                 if (powerOffViaUSB()) {
-                	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
+                    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
                 } else if (connectionState == ConnectionState::DISCONNECTED) {
                     updateSysClock();
                     break;
                 } else if (connectionState == ConnectionState::BT_CONNECTED) {
-                	break;
+                    break;
                 }
             [[ fallthrough ]]; // when the CDC part was connected.
             case CMD_USB_CDC_DISCONNECT:
-            	INFO("CDC Disconnect");
+                INFO("CDC Disconnect");
                 if (connectionState == ConnectionState::USB_CONNECTED) {
-                	connectionState = ConnectionState::DISCONNECTED;
+                    connectionState = ConnectionState::DISCONNECTED;
                     osMessagePut(audioInputQueueHandle, audio::IDLE, osWaitForever);
                     kiss::getAFSKTestTone().stop();
                     closeCDC();
@@ -279,8 +279,8 @@ void startIOEventTask(void const*)
                     HAL_NVIC_EnableIRQ(BT_STATE1_EXTI_IRQn);
                     HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
 
-                	configure_power_on_disconnect();
-                	if (!power_button_down) indicate_waiting_to_connect();
+                    configure_power_on_disconnect();
+                    if (!power_button_down) indicate_waiting_to_connect();
                     updateSysClock();
                 }
                 break;
@@ -296,20 +296,20 @@ void startIOEventTask(void const*)
                 }
                 break;
             case CMD_POWER_BUTTON_UP:
-            	INFO("Power Up");
-            	power_button_down = false;
-            	osTimerStop(powerOffTimerHandle);
-            	switch (connectionState) {
-            	case ConnectionState::DISCONNECTED:
-            		indicate_waiting_to_connect();
-            		break;
-            	case ConnectionState::BT_CONNECTED:
-            		indicate_connected_via_ble();
-            		break;
-            	case ConnectionState::USB_CONNECTED:
-            		indicate_connected_via_usb();
-            		break;
-            	}
+                INFO("Power Up");
+                power_button_down = false;
+                osTimerStop(powerOffTimerHandle);
+                switch (connectionState) {
+                case ConnectionState::DISCONNECTED:
+                    indicate_waiting_to_connect();
+                    break;
+                case ConnectionState::BT_CONNECTED:
+                    indicate_connected_via_ble();
+                    break;
+                case ConnectionState::USB_CONNECTED:
+                    indicate_connected_via_usb();
+                    break;
+                }
                 break;
             case CMD_BOOT_BUTTON_DOWN:
                 TNC_DEBUG("BOOT Down");
@@ -345,12 +345,12 @@ void startIOEventTask(void const*)
                 TNC_DEBUG("BT Connect");
                 if (openSerial())
                 {
-                	connectionState = ConnectionState::BT_CONNECTED;
+                    connectionState = ConnectionState::BT_CONNECTED;
                     configure_power_on_connect();
                     if (POWER_STATE_VBUS_ENUM == powerState) HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
                     INFO("BT Opened");
                     if (!power_button_down) indicate_connected_via_ble();
-                    getModulator().init(hardware);	// Need to re-init modulator after reconfig.
+                    getModulator().init(hardware);    // Need to re-init modulator after reconfig.
                     osMessagePut(audioInputQueueHandle,
                         audio::DEMODULATOR, osWaitForever);
                     osThreadYield();
@@ -409,7 +409,7 @@ void startIOEventTask(void const*)
                 HAL_PWR_DisableBkUpAccess();
 
                 stop2((powerState == POWER_STATE_VBAT ? TNC_LOWPOWER_VBAT : TNC_LOWPOWER_VUSB) |
-                		(battery_low ? TNC_LOWPOWER_LOW_BAT : 0));
+                        (battery_low ? TNC_LOWPOWER_LOW_BAT : 0));
                 // No return...
                 break;
             case CMD_USB_CHARGE_ENABLE:
@@ -460,7 +460,7 @@ void startIOEventTask(void const*)
                 }
                 if (go_back_to_sleep) {
                     osTimerStop(usbShutdownTimerHandle);
-                	osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
+                    osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 1);
                 }
                break;
             case CMD_BT_DEEP_SLEEP:
@@ -476,7 +476,7 @@ void startIOEventTask(void const*)
                 INFO("BT idle");
                 break;
             case CMD_OVP_ERROR:
-            	// There is a 100ms OVP error glitch when USB is disconnected.
+                // There is a 100ms OVP error glitch when USB is disconnected.
                 INFO("OVP Error");
                 break;
             case CMD_NO_OVP_ERROR:
@@ -509,7 +509,7 @@ void startIOEventTask(void const*)
             TNC_DEBUG("Serial frame");
             if ((frame->type() & 0x0F) == IoFrame::DATA)
             {
-            	kiss::getAFSKTestTone().stop();
+                kiss::getAFSKTestTone().stop();
                 if (osMessagePut(hdlcOutputQueueHandle,
                     reinterpret_cast<uint32_t>(frame),
                     osWaitForever) != osOK)

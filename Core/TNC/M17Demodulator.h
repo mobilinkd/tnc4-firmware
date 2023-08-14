@@ -79,8 +79,8 @@ struct M17Demodulator : IDemodulator
     uint8_t sample_index = 0;
 
     bool dcd_ = false;
-	bool need_clock_reset_ = false;
-	bool need_clock_update_ = false;
+    bool need_clock_reset_ = false;
+    bool need_clock_update_ = false;
 
     bool passall_ = false;
     int ber = -1;
@@ -147,7 +147,7 @@ struct M17Demodulator : IDemodulator
     uint32_t readBatteryLevel() override
     {
 #if defined(STM32L4P5xx) || defined(STM32L4Q5xx)
-    	return get_bat_level();
+        return get_bat_level();
 #elif !(defined(NUCLEOTNC))
         TNC_DEBUG("enter M17Demodulator::readBatteryLevel");
 

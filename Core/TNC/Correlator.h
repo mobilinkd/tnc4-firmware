@@ -19,10 +19,10 @@ namespace mobilinkd { namespace m17 {
 
 struct Correlator
 {
-	static constexpr size_t SYMBOLS = 8;
-	static constexpr size_t SAMPLES_PER_SYMBOL = 10;
+    static constexpr size_t SYMBOLS = 8;
+    static constexpr size_t SAMPLES_PER_SYMBOL = 10;
 
-	using value_type = float;
+    using value_type = float;
     using buffer_t = std::array<float, SYMBOLS * SAMPLES_PER_SYMBOL>;
     using sync_t = std::array<int8_t, SYMBOLS>;
     using sample_filter_t = tnc::IirFilter<3>;
@@ -66,106 +66,106 @@ struct Correlator
     template <typename F>
     void apply(F func, uint8_t index)
     {
-    	for (size_t i = index; i < buffer_.size(); i += SAMPLES_PER_SYMBOL)
-    	{
-    		func(buffer_[i]);
-    	}
+        for (size_t i = index; i < buffer_.size(); i += SAMPLES_PER_SYMBOL)
+        {
+            func(buffer_[i]);
+        }
     }
 };
 
 struct Indicator
 {
-	GPIO_TypeDef* gpio;
-	uint16_t pin;
+    GPIO_TypeDef* gpio;
+    uint16_t pin;
 
-	void on()
-	{
-		HAL_GPIO_WritePin(gpio, pin, GPIO_PIN_SET);
-	}
+    void on()
+    {
+        HAL_GPIO_WritePin(gpio, pin, GPIO_PIN_SET);
+    }
 
-	void off()
-	{
-		HAL_GPIO_WritePin(gpio, pin, GPIO_PIN_RESET);
-	}
+    void off()
+    {
+        HAL_GPIO_WritePin(gpio, pin, GPIO_PIN_RESET);
+    }
 };
 
 template <typename Correlator>
 struct SyncWord
 {
-	static constexpr size_t SYMBOLS = Correlator::SYMBOLS;
-	static constexpr size_t SAMPLES_PER_SYMBOL = Correlator::SAMPLES_PER_SYMBOL;
-	using value_type = typename Correlator::value_type;
+    static constexpr size_t SYMBOLS = Correlator::SYMBOLS;
+    static constexpr size_t SAMPLES_PER_SYMBOL = Correlator::SAMPLES_PER_SYMBOL;
+    using value_type = typename Correlator::value_type;
 
-	using buffer_t = std::array<int8_t, SYMBOLS>;
-	using sample_buffer_t = std::array<value_type, SAMPLES_PER_SYMBOL>;
+    using buffer_t = std::array<int8_t, SYMBOLS>;
+    using sample_buffer_t = std::array<value_type, SAMPLES_PER_SYMBOL>;
 
-	buffer_t sync_word_;
-	sample_buffer_t samples_;
-	uint8_t pos_ = 0;
-	uint8_t timing_index_ = 0;
-	bool triggered_ = false;
-	int8_t updated_ = 0;
-	float magnitude_1_ = 1.f;
-	float magnitude_2_ = -1.f;
+    buffer_t sync_word_;
+    sample_buffer_t samples_;
+    uint8_t pos_ = 0;
+    uint8_t timing_index_ = 0;
+    bool triggered_ = false;
+    int8_t updated_ = 0;
+    float magnitude_1_ = 1.f;
+    float magnitude_2_ = -1.f;
 
-	SyncWord(buffer_t&& sync_word, float magnitude_1, float magnitude_2 = std::numeric_limits<float>::lowest())
-	: sync_word_(std::move(sync_word)), magnitude_1_(magnitude_1), magnitude_2_(magnitude_2)
-	{}
+    SyncWord(buffer_t&& sync_word, float magnitude_1, float magnitude_2 = std::numeric_limits<float>::lowest())
+    : sync_word_(std::move(sync_word)), magnitude_1_(magnitude_1), magnitude_2_(magnitude_2)
+    {}
 
-	float triggered(Correlator& correlator)
-	{
-		float limit_1 = correlator.limit() * magnitude_1_;
-		float limit_2 = correlator.limit() * magnitude_2_;
-		auto value = correlator.correlate(sync_word_);
+    float triggered(Correlator& correlator)
+    {
+        float limit_1 = correlator.limit() * magnitude_1_;
+        float limit_2 = correlator.limit() * magnitude_2_;
+        auto value = correlator.correlate(sync_word_);
 
-		return (value > limit_1 || value < limit_2) ? value : 0.0;
-	}
+        return (value > limit_1 || value < limit_2) ? value : 0.0;
+    }
 
-	uint8_t operator()(Correlator& correlator)
-	{
-		auto value = triggered(correlator);
+    uint8_t operator()(Correlator& correlator)
+    {
+        auto value = triggered(correlator);
 
-		value_type peak_value = 0;
+        value_type peak_value = 0;
 
-		if (std::abs(value) > 0.0)
-		{
-			if (!triggered_)
-			{
-				samples_.fill(0);
-				triggered_ = true;
-			}
-			samples_[correlator.index()] = value;
-		}
-		else
-		{
-			if (triggered_)
-			{
-				// Calculate the timing index on the falling edge.
-				triggered_ = false;
-				timing_index_ = 0;
-				peak_value = value;
-				uint8_t index = 0;
-				for (auto f : samples_)
-				{
-					if (abs(f) > abs(peak_value))
-					{
-						peak_value = f;
-						timing_index_ = index;
-					}
-					index += 1;
-				}
-				updated_ = peak_value > 0 ? 1 : -1;
-			}
-		}
-		return timing_index_;
-	}
+        if (std::abs(value) > 0.0)
+        {
+            if (!triggered_)
+            {
+                samples_.fill(0);
+                triggered_ = true;
+            }
+            samples_[correlator.index()] = value;
+        }
+        else
+        {
+            if (triggered_)
+            {
+                // Calculate the timing index on the falling edge.
+                triggered_ = false;
+                timing_index_ = 0;
+                peak_value = value;
+                uint8_t index = 0;
+                for (auto f : samples_)
+                {
+                    if (abs(f) > abs(peak_value))
+                    {
+                        peak_value = f;
+                        timing_index_ = index;
+                    }
+                    index += 1;
+                }
+                updated_ = peak_value > 0 ? 1 : -1;
+            }
+        }
+        return timing_index_;
+    }
 
-	int8_t updated()
-	{
-		auto result = updated_;
-		updated_ = 0;
-		return result;
-	}
+    int8_t updated()
+    {
+        auto result = updated_;
+        updated_ = 0;
+        return result;
+    }
 };
 
 }} // mobilinkd::m17

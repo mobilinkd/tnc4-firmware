@@ -10,44 +10,44 @@
 namespace mobilinkd { namespace libafsk {
 
 struct DelayLine {
-	
-	size_t length_;
-	std::vector<uint8_t> buffer_;
-	size_t pos_;
+    
+    size_t length_;
+    std::vector<uint8_t> buffer_;
+    size_t pos_;
 
-	DelayLine(double sample_rate, double delay)
-	: length_((delay / (1.0 / sample_rate)) + .5), buffer_(length_), pos_(0)
-	{}
-	
-	bool operator()(bool value) {
-		bool r = buffer_[pos_];
-		buffer_[pos_++] = value;
-		if (pos_ == length_) pos_ = 0;
-		return r;
-	}
+    DelayLine(double sample_rate, double delay)
+    : length_((delay / (1.0 / sample_rate)) + .5), buffer_(length_), pos_(0)
+    {}
+    
+    bool operator()(bool value) {
+        bool r = buffer_[pos_];
+        buffer_[pos_++] = value;
+        if (pos_ == length_) pos_ = 0;
+        return r;
+    }
 };
 
 
 template <size_t N>
 struct FixedDelayLine {
-	
-	size_t length_;
-	char buffer_[N];
-	size_t pos_;
+    
+    size_t length_;
+    char buffer_[N];
+    size_t pos_;
 
-	FixedDelayLine(double sample_rate, double delay)
-	: length_((delay / (1.0 / sample_rate)) + .5), buffer_(), pos_(0)
-	{
-		assert(length_ <= N);
-		memset(buffer_, 0, N);
-	}
-	
-	bool operator()(bool value) {
-		bool r = buffer_[pos_];
-		buffer_[pos_++] = value;
-		if (pos_ == length_) pos_ = 0;
-		return r;
-	}
+    FixedDelayLine(double sample_rate, double delay)
+    : length_((delay / (1.0 / sample_rate)) + .5), buffer_(), pos_(0)
+    {
+        assert(length_ <= N);
+        memset(buffer_, 0, N);
+    }
+    
+    bool operator()(bool value) {
+        bool r = buffer_[pos_];
+        buffer_[pos_++] = value;
+        if (pos_ == length_) pos_ = 0;
+        return r;
+    }
 };
 
 #if 0

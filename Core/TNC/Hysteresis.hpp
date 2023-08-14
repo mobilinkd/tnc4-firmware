@@ -8,28 +8,28 @@ namespace mobilinkd { namespace libafsk {
 template <typename T>
 struct BaseHysteresis {
 
-	typedef T float_type;
-	float_type min_;
-	float_type max_;
-	
-	int low_;
-	int high_;
-	
-	float_type last_;
-	
-	BaseHysteresis(float_type minimum, float_type maximum, int low = 0, int high = 1)
-	: min_(minimum), max_(maximum), low_(low), high_(high), last_(0.0)
-	{}
-	
-	int operator()(float_type value) {
-		if (value <= min_) {
-			last_ = low_;
-		} else if (value >= max_) {
-			last_ = high_;
-		}
-		
-		return last_;
-	}
+    typedef T float_type;
+    float_type min_;
+    float_type max_;
+    
+    int low_;
+    int high_;
+    
+    float_type last_;
+    
+    BaseHysteresis(float_type minimum, float_type maximum, int low = 0, int high = 1)
+    : min_(minimum), max_(maximum), low_(low), high_(high), last_(0.0)
+    {}
+    
+    int operator()(float_type value) {
+        if (value <= min_) {
+            last_ = low_;
+        } else if (value >= max_) {
+            last_ = high_;
+        }
+        
+        return last_;
+    }
 };
 
 typedef BaseHysteresis<double> Hysteresis;

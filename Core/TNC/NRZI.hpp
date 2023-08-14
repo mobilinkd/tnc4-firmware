@@ -5,24 +5,24 @@ namespace mobilinkd { namespace libafsk {
 
 struct NRZI {
 
-	bool state_;
-	
-	NRZI()
-	: state_(false)
-	{}
-	
-	bool decode(bool x) {
-		bool result = (x == state_);
-		state_ = x;
-		return result;
-	}
+    bool state_;
+    
+    NRZI()
+    : state_(false)
+    {}
+    
+    bool decode(bool x) {
+        bool result = (x == state_);
+        state_ = x;
+        return result;
+    }
 
-	bool encode(bool x) {
-	    if (x == 0) {
-	        state_ ^= 1;    // Flip the bit.
-	    }
-	    return state_;
-	}
+    bool encode(bool x) {
+        if (x == 0) {
+            state_ ^= 1;    // Flip the bit.
+        }
+        return state_;
+    }
 };
 
 }} // mobilinkd::libafsk
