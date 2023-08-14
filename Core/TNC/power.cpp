@@ -577,12 +577,12 @@ void configure_device_for_stop2(int8_t usb_connected)
 
     if (usb_connected) {
 		// With USB power, TCXO & BT must be kept off using TCXO_EN & BT_SLEEP.
-		HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_DeInit(TCXO_IN_GPIO_Port, TCXO_IN_Pin);
     } else {
 		// Without USB power, TCXO & BT will be off.
-		HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(BAT_CE_GPIO_Port, BAT_CE_Pin, GPIO_PIN_SET);
 		HAL_GPIO_DeInit(TCXO_IN_GPIO_Port, TCXO_IN_Pin|TCXO_EN_Pin);
 		HAL_GPIO_DeInit(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin);
     }
@@ -847,7 +847,8 @@ void power_down_vdd_for_stop(int8_t usb_connected)
     	HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_SET);
     } else {
 		HAL_GPIO_WritePin(VDD_EN_GPIO_Port, VDD_EN_Pin, GPIO_PIN_RESET);
-		for (int i = 0; i < 1200; ++i) asm volatile("nop");
+		// Wait for VDD_SENSE to register VDD off.
+		while (VDD_SENSE_GPIO_Port->IDR & VDD_SENSE_Pin) asm volatile("nop");
     }
 }
 
@@ -935,6 +936,7 @@ bool should_wake_from_stop2(int8_t usb_connected)
 			}
 		}
 	} else if (!(GPIOA->IDR & GPIO_PIN_9) && usb_connected) {	// VUSB disconnect
+        SysClock2();
 		while (!(GPIOA->IDR & GPIO_PIN_9)) {
 			if (HAL_GetTick() - start > 2000) {
 				// Battery charging off.
@@ -948,6 +950,7 @@ bool should_wake_from_stop2(int8_t usb_connected)
 			}
 		}
 	} else if (SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) {		// SW_POWER press
+        SysClock2();
 		INFO("power button");
 		while (SW_POWER_GPIO_Port->IDR & SW_POWER_Pin) {
 			if (HAL_GetTick() - start > 2000) {
