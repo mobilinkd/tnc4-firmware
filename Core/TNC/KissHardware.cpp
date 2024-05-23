@@ -43,13 +43,13 @@ int powerOffViaUSB(void)
 namespace mobilinkd { namespace tnc { namespace kiss {
 
 #if defined(NUCLEOTNC)
-const char FIRMWARE_VERSION[] = "2.5.10";
+const char FIRMWARE_VERSION[] = "2.5.11";
 const char HARDWARE_VERSION[] = "Mobilinkd NucleoTNC";
 #elif defined(STM32L433xx)
-const char FIRMWARE_VERSION[] = "2.5.10";
+const char FIRMWARE_VERSION[] = "2.5.11";
 const char HARDWARE_VERSION[] = "Mobilinkd TNC3 2.1.1";
 #elif defined(STM32L4P5xx)
-const char FIRMWARE_VERSION[] = "2.5.10";
+const char FIRMWARE_VERSION[] = "2.5.11";
 const char HARDWARE_VERSION[] = "Mobilinkd TNC4 Rev B";
 #endif
 
@@ -102,10 +102,10 @@ void set_rtc_datetime(const uint8_t* buffer)
 
     HAL_PWR_EnableBkUpAccess();
 
-    if (auto status = HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
         ERROR("Could not set time: %d", status);
     }
-    if (auto status = HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {
         ERROR("Could not set time: %d", status);
     }
 
