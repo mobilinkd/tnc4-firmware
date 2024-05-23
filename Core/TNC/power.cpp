@@ -534,6 +534,8 @@ void configure_device_for_stop2(int8_t usb_connected)
 {
     go_back_to_sleep = 0;
 
+    reset_indicator();
+
     HAL_OPAMP_DeInit(&hopamp1);
     HAL_OPAMP_DeInit(&hopamp2);
     HAL_COMP_DeInit(&hcomp1);
