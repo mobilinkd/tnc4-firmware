@@ -347,7 +347,10 @@ void startIOEventTask(void const*)
                 {
                     connectionState = ConnectionState::BT_CONNECTED;
                     configure_power_on_connect();
-                    if (POWER_STATE_VBUS_ENUM == powerState) HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
+                    if (POWER_STATE_VBUS_ENUM == powerState) {
+                        powerState = POWER_STATE_VBUS_HOST;
+                        HAL_PCD_Stop(&HPCD);
+                    }
                     INFO("BT Opened");
                     if (!power_button_down) indicate_connected_via_ble();
                     getModulator().init(hardware);    // Need to re-init modulator after reconfig.
@@ -360,7 +363,9 @@ void startIOEventTask(void const*)
                 INFO("BT Disconnect");
                 closeSerial();
                 connectionState = ConnectionState::DISCONNECTED;
-                if (POWER_STATE_VBUS_ENUM == powerState) HAL_PCD_EP_ClrStall(&HPCD, CDC_CMD_EP);
+                if (POWER_STATE_VBUS_HOST == powerState) {
+                    HAL_PCD_Start(&HPCD);
+                }
                 osMessagePut(audioInputQueueHandle, audio::IDLE,
                     osWaitForever);
                 kiss::getAFSKTestTone().stop();
@@ -442,9 +447,11 @@ void startIOEventTask(void const*)
                 break;
             case CMD_USB_HOST_ENUMERATED:
                 INFO("USB host enumerated");
-                powerState = POWER_STATE_VBUS_ENUM;
-                if (ConnectionState::BT_CONNECTED == connectionState) HAL_PCD_EP_SetStall(&HPCD, CDC_CMD_EP);
-                initCDC();
+                if (ConnectionState::BT_CONNECTED == connectionState) {
+                    HAL_PCD_Stop(&HPCD);
+                } else {
+                    powerState = POWER_STATE_VBUS_ENUM;
+                }
                 break;
             case CMD_USB_DISCOVERY_ERROR:
                 // This happens when powering VUSB from a bench supply.
