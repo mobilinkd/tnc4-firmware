@@ -5,28 +5,6 @@
 
 namespace mobilinkd { namespace tnc {
 
-/*
- * Cosine.
-const Fsk9600Modulator::cos_table_type Fsk9600Modulator::cos_table = {
-    2047,  2020,  1937,  1801,  1616,  1387,  1120,   822,   502,   169,
-    -169,  -502,  -822, -1120, -1387, -1616, -1801, -1937, -2020, -2048
-};
-*/
-
-/*
- * Square wave -- filtered in hardware at 7200Hz
-const Fsk9600Modulator::cos_table_type Fsk9600Modulator::cos_table = {
-     2047,  2047,  2047,  2047,  2047,  2047,  2047,  2047,  2047,  2047,
-    -2048, -2048, -2048, -2048, -2048, -2048, -2048, -2048, -2048, -2048
-};
-*/
-
-// Gaussian
-const Fsk9600Modulator::cos_table_type Fsk9600Modulator::cos_table = {
-    2042,  2027,  1995,  1931,  1815,  1626,  1345,   968,   507,     0,
-    -507,  -968, -1345, -1626, -1815, -1931, -1995, -2027, -2042, -2048
-};
-
 void Fsk9600Modulator::init(const kiss::Hardware& hw)
 {
     for (auto& x : buffer_) x = 2048;
@@ -34,12 +12,11 @@ void Fsk9600Modulator::init(const kiss::Hardware& hw)
     (void) hw; // unused
 
     state = State::STOPPED;
-    level = Level::HIGH;
 
     SysClock72();
 
-    // Configure 72MHz clock for 192ksps.
-    htim7.Instance->ARR = 374; // 374
+    // Configure 72MHz clock for 96ksps.
+    htim7.Instance->ARR = 749;
     htim7.Instance->PSC = 0;
 
     DAC_ChannelConfTypeDef sConfig;
@@ -59,36 +36,18 @@ void Fsk9600Modulator::init(const kiss::Hardware& hw)
     INFO("Fsk9600Modulator::init");
 }
 
-void Fsk9600Modulator::fill(uint16_t* buffer, bool bit)
+void Fsk9600Modulator::fill(uint16_t* buffer, uint8_t bits)
 {
-    switch (level)
+    for (uint8_t i = 0; i != BLOCKSIZE; ++i) {
+        symbols[i] = (bits & 0x80 ? UPSAMPLE : -UPSAMPLE);
+        bits <<= 1;
+    }
+
+    arm_fir_interpolate_f32(&fir_interpolator, symbols.data(), tmp, BLOCKSIZE);
+
+    for (uint8_t i = 0; i != TRANSFER_LEN; ++i)
     {
-    case Level::HIGH:
-        if (bit)
-        {
-            std::fill(buffer, buffer + BIT_LEN, adjust_level(2047));
-        }
-        else
-        {
-            std::transform(cos_table.begin(), cos_table.end(), buffer,
-                [this](auto x){return adjust_level(x);});
-            level = Level::LOW;
-        }
-        break;
-    case Level::LOW:
-        if (bit)
-        {
-            std::transform(cos_table.begin(), cos_table.end(), buffer,
-                [this](auto x){return adjust_level(-1 - x);});
-            level = Level::HIGH;
-        }
-        else
-        {
-            std::fill(buffer, buffer + BIT_LEN, adjust_level(-2048));
-        }
-        break;
-    default:
-        CxxErrorHandler();
+        buffer[i] = adjust_level(tmp[i]);
     }
 }
 
