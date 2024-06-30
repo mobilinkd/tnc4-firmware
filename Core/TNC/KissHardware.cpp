@@ -102,10 +102,12 @@ void set_rtc_datetime(const uint8_t* buffer)
 
     HAL_PWR_EnableBkUpAccess();
 
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
+    if (auto status = HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
+        status = status;
         ERROR("Could not set time: %d", status);
     }
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {
+    if (auto status = HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {
+        status = status;
         ERROR("Could not set time: %d", status);
     }
 
