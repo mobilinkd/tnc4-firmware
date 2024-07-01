@@ -1654,15 +1654,15 @@ void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 #if 1
-long _write_r(struct _reent *r, int fd, const char *ptr, int len);
+_ssize_t _write_r(struct _reent *r, int fd, const void *ptr, size_t len);
 
-long _write_r(struct _reent *r, int fd, const char *ptr, int len)
+_ssize_t _write_r(struct _reent *r, int fd, const void *ptr, size_t len)
 {
   UNUSED(r);
   UNUSED(fd);
 #ifdef KISS_LOGGING
     for (int i = 0; i != len; ++i)
-      ITM_SendChar(ptr[i]);
+      ITM_SendChar(((char*) ptr)[i]);
 #endif
   return len;
 }
