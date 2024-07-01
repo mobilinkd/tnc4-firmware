@@ -62,6 +62,23 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
+void MX_GPIO_Init(void);
+void MX_DMA_Init(void);
+void MX_ADC2_Init(void);
+void MX_COMP1_Init(void);
+void MX_CRC_Init(void);
+void MX_DAC1_Init(void);
+void MX_OPAMP1_Init(void);
+void MX_OPAMP2_Init(void);
+void MX_RNG_Init(void);
+void MX_TIM6_Init(void);
+void MX_TIM7_Init(void);
+void MX_TIM8_Init(void);
+void MX_USART3_UART_Init(void);
+void MX_I2C1_Init(void);
+void MX_IWDG_Init(void);
+void MX_RTC_Init(void);
+void MX_ADC1_Init(void);
 
 /* USER CODE BEGIN EFP */
 
@@ -69,10 +86,10 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define EEPROM_ADDRESS 0xA0
-#define EEPROM_CAPACITY 4096
 #define EEPROM_PAGE_SIZE 32
+#define EEPROM_CAPACITY 4096
 #define EEPROM_WRITE_TIME 10
+#define EEPROM_ADDRESS 0xA0
 #define VDD_SENSE_Pin GPIO_PIN_13
 #define VDD_SENSE_GPIO_Port GPIOC
 #define TCXO_IN_Pin GPIO_PIN_0
@@ -139,23 +156,7 @@ void Error_Handler(void);
 #define BT_RESET_GPIO_Port GPIOB
 #define SW_BOOT_Pin GPIO_PIN_3
 #define SW_BOOT_GPIO_Port GPIOH
-void   MX_GPIO_Init(void);
-void   MX_DMA_Init(void);
-void   MX_ADC2_Init(void);
-void   MX_COMP1_Init(void);
-void   MX_CRC_Init(void);
-void   MX_DAC1_Init(void);
-void   MX_OPAMP1_Init(void);
-void   MX_OPAMP2_Init(void);
-void   MX_RNG_Init(void);
-void   MX_TIM6_Init(void);
-void   MX_TIM7_Init(void);
-void   MX_TIM8_Init(void);
-void   MX_USART3_UART_Init(void);
-void   MX_I2C1_Init(void);
-void   MX_IWDG_Init(void);
-void   MX_RTC_Init(void);
-void   MX_ADC1_Init(void);
+
 /* USER CODE BEGIN Private defines */
 #define BT_STATE1_EXTI_IRQn EXTI0_IRQn
 #define BT_STATE2_EXTI_IRQn EXTI1_IRQn

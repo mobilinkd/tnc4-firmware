@@ -51,13 +51,7 @@
  * GNU Compiler
  */
 #elif defined ( __GNUC__ )
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "cmsis_gcc.h"
-#ifdef __cplusplus
-}
-#endif
+  #include "cmsis_gcc.h"
 
 
 /*
