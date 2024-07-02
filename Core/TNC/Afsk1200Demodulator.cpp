@@ -172,7 +172,7 @@ uint32_t Afsk1200Demodulator::readBatteryLevel()
     gpio::USB_CE::on();
 
     gpio::BAT_DIVIDER::off();
-    HAL_Delay(1);
+    DELAY(1);
 
     sConfig.Channel = BATTERY_ADC_CHANNEL;
     if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK)

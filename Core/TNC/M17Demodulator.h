@@ -53,7 +53,7 @@ struct M17Demodulator : IDemodulator
     static constexpr float EOT_TRIGGER_LEVEL = 0.1;
 
     using audio_filter_t = FirFilter<ADC_BLOCK_SIZE, m17::FILTER_TAP_NUM>;
-    using sync_word_t = m17::SyncWord<m17::Correlator>;
+    using sync_word_t = SyncWord<m17::Correlator>;
 
     enum class DemodState { UNLOCKED, LSF_SYNC, STREAM_SYNC, PACKET_SYNC, BERT_SYNC, SYNC_WAIT, FRAME };
 
@@ -178,7 +178,7 @@ struct M17Demodulator : IDemodulator
         gpio::USB_CE::on();
 
         gpio::BAT_DIVIDER::off();
-        HAL_Delay(1);
+        DELAY(1);
 
         sConfig.Channel = BATTERY_ADC_CHANNEL;
         if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK)

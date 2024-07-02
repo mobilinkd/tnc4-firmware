@@ -151,7 +151,7 @@ void startIOEventTask(void const*)
         // Ensure nothing is connected at this point because TNC must get
         // BT device interrupts to configure connection properly.
         HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET); // BT module reset.
-        HAL_Delay(1);
+        osDelay(1);
         HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
         bm78_wait_until_ready();
         __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
@@ -288,7 +288,7 @@ void startIOEventTask(void const*)
                 INFO("Power Down");
                 power_button_down = true;
                 indicate_turning_off();
-                if (auto result = osTimerStart(powerOffTimerHandle, 2000) == osOK) {
+                if (auto result = osTimerStart(powerOffTimerHandle, 1890) == osOK) {
                     INFO("shutdown timer started");
                 } else {
                     (void) result;
@@ -406,7 +406,7 @@ void startIOEventTask(void const*)
                 HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET);
                 configure_power_on_disconnect();
 
-                HAL_Delay(100); // Allow VUSB_SENSE time to de-energize from 1.5k pullup leakage.
+                osDelay(100); // Allow VUSB_SENSE time to de-energize from 1.5k pullup leakage.
                 if (!(GPIOA->IDR & GPIO_PIN_9)) powerState = POWER_STATE_VBAT;
 
                 HAL_PWR_EnableBkUpAccess();

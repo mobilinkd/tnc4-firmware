@@ -44,9 +44,8 @@ namespace mobilinkd { namespace tnc { namespace bm78 {
 
 void bm78_reset()
 {
-  // Must use HAL_Delay() here as osDelay() may not be available.
   mobilinkd::tnc::gpio::BT_RESET::off();
-  HAL_Delay(1);
+  DELAY(1);
   mobilinkd::tnc::gpio::BT_RESET::on();
 }
 
@@ -62,11 +61,11 @@ void enter_program_mode()
 {
     // Ensure we start out disconnected.
     gpio::BT_CMD1::off();
-    HAL_Delay(10);
+    DELAY(10);
     gpio::BT_RESET::off();
-    HAL_Delay(1);       // Spec says minimum 63ns.
+    DELAY(1);       // Spec says minimum 63ns.
     gpio::BT_RESET::on();
-    HAL_Delay(200);     // Timing for EEPROM programming is not specified.
+    DELAY(200);     // Timing for EEPROM programming is not specified.
 
     huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
     huart3.Init.BaudRate = 115200;
@@ -112,9 +111,9 @@ bool read_mac_address()
 void exit_program_mode()
 {
     gpio::BT_CMD1::on();
-    HAL_Delay(10);
+    DELAY(10);
     gpio::BT_RESET::off();
-    HAL_Delay(1);       // Spec says minimum 63ns.
+    DELAY(1);       // Spec says minimum 63ns.
     gpio::BT_RESET::on();
 
     huart3.Init.HwFlowCtl = UART_HWCONTROL_RTS_CTS;
@@ -481,6 +480,8 @@ void bm78_wait_until_ready()
     // Must wait until P1_5 (BT_STATE2) is high and P0_4 (BT_STATE1) is low.
     bool bt_state1, bt_state2;
     do {
+        if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) osDelay(1);
+
         if (HAL_GetTick() > start + 2000) CxxErrorHandler(); // Timed out.
 
         __HAL_GPIO_EXTI_CLEAR_IT(BT_STATE2_Pin);

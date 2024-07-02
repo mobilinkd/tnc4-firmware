@@ -389,7 +389,7 @@ uint32_t get_bat_level()
     enable_adc_clk();
 
     HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_RESET);
-    HAL_Delay(1); // Stabilize power.
+    DELAY(1); // Stabilize power.
 
     sConfig.Channel = ADC_CHANNEL_VREFINT;
     sConfig.Rank = ADC_REGULAR_RANK_1;
@@ -496,13 +496,13 @@ int is_battery_low2()
     // Set up power for battery comparator.
     enable_vdd();
     HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_RESET);
-    HAL_Delay(5); // Stabilize power.
+    DELAY(5); // Stabilize power.
 
     // Set up VBAT comparator.
     MX_COMP1_Init();
     HAL_NVIC_DisableIRQ(COMP_IRQn);
     if (HAL_COMP_Start(&hcomp1) != HAL_OK) Error_Handler();
-    HAL_Delay(4);
+    DELAY(4);
 
     uint32_t battery_ok = HAL_COMP_GetOutputLevel(&hcomp1);
 
@@ -705,7 +705,7 @@ void configure_gpio_for_shutdown()
     GPIO_InitStruct.Pull = GPIO_PULLDOWN;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    HAL_Delay(1000);
+    DELAY(1000);
 
     // SW_BOOT
     HAL_NVIC_DisableIRQ(SW_BOOT_EXTI_IRQn);
@@ -972,7 +972,7 @@ bool should_wake_from_stop2(int8_t usb_connected)
                 if (is_battery_low()) {
                     WARN("low battery");
                     indicate_battery_low();
-                    HAL_Delay(3030);
+                    DELAY(3030);
                     HAL_PWR_EnableBkUpAccess();
                     WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT | TNC_LOWPOWER_STOP2);
                     HAL_PWR_DisableBkUpAccess();
@@ -1110,7 +1110,7 @@ void configure_power_on_disconnect()
     HAL_RTCEx_SetLowPowerCalib(&hrtc, RTC_LPCAL_SET);
 }
 
- int vdd_counter = 0;
+int vdd_counter = 0;
 
 void _enable_vdd()
 {
