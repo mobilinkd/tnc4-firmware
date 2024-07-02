@@ -969,6 +969,12 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* htim_base)
   else if(htim_base->Instance==TIM8)
   {
   /* USER CODE BEGIN TIM8_MspDeInit 0 */
+      GPIO_InitTypeDef GPIO_InitStruct = {0};
+      GPIO_InitStruct.Pin = LED_BT_Pin|LED_RX_Pin|LED_TX_Pin;
+      GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+      GPIO_InitStruct.Pull = GPIO_NOPULL;
+      GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+      HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* USER CODE END TIM8_MspDeInit 0 */
     /* Peripheral clock disable */
