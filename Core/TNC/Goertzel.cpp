@@ -5,7 +5,7 @@
 
 namespace mobilinkd { namespace tnc {
 
-#if 1
+#if 0
 const float WINDOW[] = {
   0.006878,
   0.00687800535762,

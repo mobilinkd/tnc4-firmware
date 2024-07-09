@@ -26,7 +26,7 @@ class GoertzelFilter
     const float* window_;
 
 public:
-    GoertzelFilter(float filter_freq, const float* window = WINDOW)
+    GoertzelFilter(float filter_freq, const float* window = 0)
         : filterFreq_(filter_freq), bin_(
             0.5f + ((filter_freq * SAMPLES) / SAMPLE_RATE)), coeff_(
             2.0f * cos((2.0f * PI * bin_) / float(SAMPLES))), window_(window)
