@@ -42,13 +42,6 @@ namespace mobilinkd { namespace tnc { namespace bm78 {
  *  - The module power setting is set as low as possible for BLE.
  */
 
-void bm78_reset()
-{
-  mobilinkd::tnc::gpio::BT_RESET::off();
-  DELAY(1);
-  mobilinkd::tnc::gpio::BT_RESET::on();
-}
-
 /**
  * Enter BM78 EEPROM programming mode.
  *
@@ -61,11 +54,11 @@ void enter_program_mode()
 {
     // Ensure we start out disconnected.
     gpio::BT_CMD1::off();
-    DELAY(10);
+    HAL_Delay(10);
     gpio::BT_RESET::off();
-    DELAY(1);       // Spec says minimum 63ns.
+    HAL_Delay(1);       // Spec says minimum 63ns.
     gpio::BT_RESET::on();
-    DELAY(200);     // Timing for EEPROM programming is not specified.
+    HAL_Delay(200);     // Timing for EEPROM programming is not specified.
 
     huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
     huart3.Init.BaudRate = 115200;
@@ -111,9 +104,9 @@ bool read_mac_address()
 void exit_program_mode()
 {
     gpio::BT_CMD1::on();
-    DELAY(10);
+    HAL_Delay(10);
     gpio::BT_RESET::off();
-    DELAY(1);       // Spec says minimum 63ns.
+    HAL_Delay(1);       // Spec says minimum 63ns.
     gpio::BT_RESET::on();
 
     huart3.Init.HwFlowCtl = UART_HWCONTROL_RTS_CTS;
@@ -474,13 +467,20 @@ bool set_reliable()
 
 }}} // mobilinkd::tnc::bm78
 
+void bm78_reset()
+{
+  mobilinkd::tnc::gpio::BT_RESET::off();
+  DELAY(10);
+  mobilinkd::tnc::gpio::BT_RESET::on();
+}
+
 void bm78_wait_until_ready()
 {
     auto start = HAL_GetTick();
     // Must wait until P1_5 (BT_STATE2) is high and P0_4 (BT_STATE1) is low.
     bool bt_state1, bt_state2;
     do {
-        if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) osDelay(1);
+        DELAY(1);
 
         if (HAL_GetTick() > start + 2000) CxxErrorHandler(); // Timed out.
 

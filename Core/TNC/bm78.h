@@ -33,6 +33,7 @@ int bm78_enable(void);
 int bm78_initialized(void);
 int bm78_initialize(void);
 void bm78_initialize_mac_address(void);
+void bm78_reset(void);
 
 HAL_StatusTypeDef bm78_send(const char* data, uint16_t size, uint32_t timeout);
 
