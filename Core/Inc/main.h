@@ -275,7 +275,7 @@ extern uint16_t mobilinkd_model;
 extern uint16_t mobilindk_date_code;
 extern uint32_t mobilinkd_serial_number;
 
-#define CxxErrorHandler() _Error_Handler(const_cast<char*>(__FILE__), __LINE__)
+#define CxxErrorHandler() _Error_Handler(const_cast<char*>(__FILE_NAME__), __LINE__)
 
 #ifdef __cplusplus
  extern "C" {

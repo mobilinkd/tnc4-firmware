@@ -1697,7 +1697,7 @@ void init_rtc_date_time()
   sTime.TimeFormat = RTC_HOURFORMAT_24;
   if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    _Error_Handler(__FILE_NAME__, __LINE__);
   }
 
   sDate.WeekDay = RTC_WEEKDAY_MONDAY;
@@ -1707,7 +1707,7 @@ void init_rtc_date_time()
 
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    _Error_Handler(__FILE_NAME__, __LINE__);
   }
 }
 
@@ -1730,7 +1730,7 @@ void init_rtc_alarm()
   sAlarm.Alarm = RTC_ALARM_A;
   if (HAL_RTC_SetAlarm(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+    _Error_Handler(__FILE_NAME__, __LINE__);
   }
 
     /**Enable the Alarm B
@@ -1770,7 +1770,7 @@ void SysClock2(void)
 
     // Use HSI for SysClock while reconfiguring clocks.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     TPI->ACPR = 7; // 16MHz
@@ -1830,7 +1830,7 @@ void SysClock48()
 
     // VDD must be enabled to use TCXO.
     if (!(VDD_EN_GPIO_Port->ODR & VDD_EN_Pin)) {
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
@@ -1858,7 +1858,7 @@ void SysClock48()
     // Use HSI for SysClock while reconfiguring clocks.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
     {
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     TPI->ACPR = 7; // 16MHz
@@ -1878,7 +1878,7 @@ void SysClock48()
     if (result != HAL_OK)
     {
         ERROR("HAL_RCC_OscConfig = %d", result);
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1888,7 +1888,7 @@ void SysClock48()
     if (result != HAL_OK)
     {
         ERROR("HAL_RCC_ClockConfig = %d", result);
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     TPI->ACPR = 23;
@@ -1915,7 +1915,7 @@ void SysClock72()
 
     // VDD must be enabled to use TCXO.
     if (!(VDD_EN_GPIO_Port->ODR & VDD_EN_Pin)) {
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
@@ -1942,7 +1942,7 @@ void SysClock72()
 
     // Use HSI for SysClock while reconfiguring clocks.
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     TPI->ACPR = 7; // 16MHz
@@ -1962,7 +1962,7 @@ void SysClock72()
     HAL_StatusTypeDef result = HAL_RCC_OscConfig(&RCC_OscInitStruct);
     if (result != HAL_OK) {
         ERROR("HAL_RCC_OscConfig = %d", result);
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1971,7 +1971,7 @@ void SysClock72()
     result = HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3);
     if (result != HAL_OK) {
         ERROR("HAL_RCC_ClockConfig = %d", result);
-        _Error_Handler(__FILE__, __LINE__);
+        _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
     TPI->ACPR = 35;
