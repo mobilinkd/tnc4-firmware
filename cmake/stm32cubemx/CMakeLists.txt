@@ -9,7 +9,10 @@ enable_language(C ASM)
 target_compile_definitions(stm32cubemx INTERFACE 
     USE_HAL_DRIVER 
     STM32L4P5xx
+    ARM_MATH_CM4
     $<$<CONFIG:Debug>:DEBUG>
+    $<$<CONFIG:Debug>:KISS_LOGGING>
+    $<$<CONFIG:Release>:NDEBUG>
 )
 
 target_include_directories(stm32cubemx INTERFACE

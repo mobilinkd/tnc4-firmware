@@ -9,7 +9,10 @@ enable_language(CXX ASM)
 target_compile_definitions(tnc PUBLIC 
     USE_HAL_DRIVER 
     STM32L4P5xx
+    ARM_MATH_CM4
     $<$<CONFIG:Debug>:DEBUG>
+    $<$<CONFIG:Debug>:KISS_LOGGING>
+    $<$<CONFIG:Release>:NDEBUG>
     BOOST_DISABLE_ASSERTS
 )
 
