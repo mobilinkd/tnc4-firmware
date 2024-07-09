@@ -25,6 +25,10 @@
 #ifndef __CMSIS_GCC_H
 #define __CMSIS_GCC_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ignore some GCC warnings */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-conversion"
@@ -2164,5 +2168,9 @@ __STATIC_FORCEINLINE int32_t __SMMLA (int32_t op1, int32_t op2, int32_t op3)
 
 
 #pragma GCC diagnostic pop
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __CMSIS_GCC_H */

@@ -28,6 +28,9 @@
 #include "cmsis_os.h"
 
 extern osMessageQId hdlcOutputQueueHandle;
+extern osThreadId modulatorTaskHandle;
+extern osThreadId audioInputTaskHandle;
+
 extern I2C_HandleTypeDef hi2c1;
 extern UART_HandleTypeDef huart3;
 
@@ -92,7 +95,21 @@ void startIOEventTask(void const*)
 {
     using namespace mobilinkd::tnc;
 
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitTypeDef GPIO_InitStruct = {};
+
+    // Initialize OPAMP2 pins as GPIO.  These are on connector J1.
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_0;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     disable_adc_clk(); // Battery ADC is not in use now.
     HAL_IWDG_Refresh(&hiwdg);
@@ -133,6 +150,8 @@ void startIOEventTask(void const*)
 
     if (!go_back_to_sleep) {
         osMutexRelease(hardwareInitMutexHandle);
+        osThreadResume(modulatorTaskHandle);
+        osThreadResume(audioInputTaskHandle);
 
         hardware.debug();
 
@@ -150,9 +169,7 @@ void startIOEventTask(void const*)
 
         // Ensure nothing is connected at this point because TNC must get
         // BT device interrupts to configure connection properly.
-        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_RESET); // BT module reset.
-        osDelay(1);
-        HAL_GPIO_WritePin(BT_RESET_GPIO_Port, BT_RESET_Pin, GPIO_PIN_SET); // BT module out of reset.
+        bm78_reset();
         bm78_wait_until_ready();
         __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
     } else if (powerState == PowerState::POWER_STATE_VBUS) {

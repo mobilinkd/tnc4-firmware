@@ -43,6 +43,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+void _Error_Handler2(char *file, int line, HAL_StatusTypeDef status);
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -123,7 +124,6 @@ osStaticTimerDef_t powerOffTimerControlBlock;
 osTimerId batteryCheckTimerHandle;
 osStaticTimerDef_t batteryCheckTimerControlBlock;
 osMutexId hardwareInitMutexHandle;
-osStaticMutexDef_t hardwareInitMutexControlBlock;
 /* USER CODE BEGIN PV */
 
 osMutexId hardwareInitMutexHandle;
@@ -217,6 +217,7 @@ void encode_serial_number()
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
     uint32_t wakeEvent = PWR->SR1 & 0x1F;
@@ -250,6 +251,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+    __HAL_RCC_PLL_DISABLE(); // Work around HAL_RCC_OscConfig bug.
+    __HAL_DBGMCU_FREEZE_IWDG();
 
     // Disable GPIO pull-up/down otherwise the shutdown pull-up/pull-down
     // remain active after restart.
@@ -604,7 +607,7 @@ int main(void)
 
   /* Create the mutex(es) */
   /* definition and creation of hardwareInitMutex */
-  osMutexStaticDef(hardwareInitMutex, &hardwareInitMutexControlBlock);
+  osMutexDef(hardwareInitMutex);
   hardwareInitMutexHandle = osMutexCreate(osMutex(hardwareInitMutex));
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -678,9 +681,6 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* definition and creation of defaultTask */
-  osThreadStaticDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 256, defaultTaskBuffer, &defaultTaskControlBlock);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of ioEventTask */
   osThreadStaticDef(ioEventTask, startIOEventTask, osPriorityLow, 0, 512, ioEventTaskBuffer, &ioEventTaskControlBlock);
@@ -696,12 +696,16 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  osThreadSuspend(modulatorTaskHandle);
+  osThreadSuspend(audioInputTaskHandle);
 
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
   osKernelStart();
+
   /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -739,7 +743,7 @@ void SystemClock_Config(void)
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI
                               |RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_LSE;
-  RCC_OscInitStruct.LSEState = RCC_LSE_ON_RTC_ONLY; // was RCC_LSE_ON
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -763,9 +767,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-#if defined(DEBUG)
   HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_8);
-#endif
 }
 
 /**
@@ -808,7 +810,6 @@ void MX_ADC1_Init(void)
   hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_2;
   hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
   hadc1.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
-  hadc1.Init.DFSDMConfig = ADC_DFSDM_MODE_ENABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
@@ -879,7 +880,6 @@ void MX_ADC2_Init(void)
   hadc2.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_2;
   hadc2.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
   hadc2.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
-  hadc2.Init.DFSDMConfig = ADC_DFSDM_MODE_ENABLE;
   if (HAL_ADC_Init(&hadc2) != HAL_OK)
   {
     Error_Handler();
@@ -1661,7 +1661,7 @@ _ssize_t _write_r(struct _reent *r, int fd, const void *ptr, size_t len)
   UNUSED(r);
   UNUSED(fd);
 #ifdef KISS_LOGGING
-    for (int i = 0; i != len; ++i)
+    for (size_t i = 0; i != len; ++i)
       ITM_SendChar(((char*) ptr)[i]);
 #endif
   return len;
@@ -1775,24 +1775,34 @@ void SysClock2(void)
 
     TPI->ACPR = 7; // 16MHz
 
+    __HAL_RCC_PLL_DISABLE(); // Work around HAL_RCC_OscConfig bug.
+
     // Disable HSE, enable MSI and set to 2MHz, disable PLL.
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_LSE;
+    RCC_OscInitStruct.LSEState = RCC_LSE_ON_RTC_ONLY;
     RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
     RCC_OscInitStruct.MSIState = RCC_MSI_ON;
     RCC_OscInitStruct.MSICalibrationValue = 0;
     RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_OFF;
     RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        Error_Handler();
+
+    HAL_StatusTypeDef result = HAL_RCC_OscConfig(&RCC_OscInitStruct);
+    if (result != HAL_OK)
+    {
+        ERROR("HAL_RCC_OscConfig = %d", result);
+        _Error_Handler2(__FILE_NAME__, __LINE__, result);
     }
 
     // Set SysClock to MSI.
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
-        Error_Handler();
+    result = HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0);
+    if (result != HAL_OK)
+    {
+        ERROR("HAL_RCC_ClockConfig = %d", result);
+        _Error_Handler2(__FILE_NAME__, __LINE__, result);
     }
 
     // Unusable when LSE is not driven externally.
@@ -1817,6 +1827,12 @@ void SysClock2(void)
     xTaskResumeAll();
 
     INFO("CPU core clock: %luHz", SystemCoreClock);
+
+#if defined(DEBUG)
+    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_MSI, RCC_MCODIV_1);
+#else
+    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_NOCLOCK, RCC_MCODIV_1);
+#endif
 }
 
 void SysClock48()
@@ -1836,11 +1852,7 @@ void SysClock48()
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
 
-    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
-        osDelay(10);
-    } else {
-        HAL_Delay(10);
-    }
+    DELAY(10);
 
     vTaskSuspendAll();
 
@@ -1878,7 +1890,7 @@ void SysClock48()
     if (result != HAL_OK)
     {
         ERROR("HAL_RCC_OscConfig = %d", result);
-        _Error_Handler(__FILE_NAME__, __LINE__);
+        _Error_Handler2(__FILE_NAME__, __LINE__, result);
     }
 
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_SYSCLK;
@@ -1888,7 +1900,7 @@ void SysClock48()
     if (result != HAL_OK)
     {
         ERROR("HAL_RCC_ClockConfig = %d", result);
-        _Error_Handler(__FILE_NAME__, __LINE__);
+        _Error_Handler2(__FILE_NAME__, __LINE__, result);
     }
 
     TPI->ACPR = 23;
@@ -1900,6 +1912,12 @@ void SysClock48()
     xTaskResumeAll();
 
     INFO("CPU core clock: %luHz", SystemCoreClock);
+
+#if defined(DEBUG)
+    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_8);
+#else
+    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_NOCLOCK, RCC_MCODIV_1);
+#endif
 }
 
 void SysClock72()
@@ -1921,11 +1939,7 @@ void SysClock72()
     // Enable TCXO. The ECS-TXO-2520 has a start-up time of 10ms.
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_SET);
 
-    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
-        osDelay(10);
-    } else {
-        HAL_Delay(10);
-    }
+    DELAY(10);
 
     vTaskSuspendAll();
 
@@ -1983,6 +1997,12 @@ void SysClock72()
     xTaskResumeAll();
 
     INFO("CPU core clock: %luHz", SystemCoreClock);
+
+#if defined(DEBUG)
+    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_8);
+#else
+    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_NOCLOCK, RCC_MCODIV_1);
+#endif
 }
 
 /**
@@ -2006,20 +2026,37 @@ void _Error_Handler(char *file, int line)
   error_code(MORSE_1, MORSE_1);
 }
 
+void _Error_Handler2(char *file, int line, HAL_StatusTypeDef status)
+{
+#ifdef KISS_LOGGING
+  printf("Error handler called from file %s on line %d\r\n", file, line);
+#endif
+  snprintf(error_message, sizeof(error_message), "Error: %s:%d, status = %d\r\n", file, line, status);
+  error_message[sizeof(error_message) - 1] = 0;
+
+  go_back_to_sleep = 0;
+
+  vTaskSuspendAll(); // Will eventually cause IWDG reset.
+
+  error_code(MORSE_1, MORSE_1);
+}
 
 void usbShutdownTimerCallback(void const * argument)
 {
+    UNUSED(argument);
     osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
 }
 
 void powerOffTimerCallback(void const * argument)
 {
+    UNUSED(argument);
     INFO("shutdown timer triggered");
     osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
 }
 
 void batteryCheckCallback(void const * argument)
 {
+    UNUSED(argument);
     HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in batteryCheckCallback.
 
     if (is_battery_low()) {
@@ -2049,6 +2086,7 @@ void batteryCheckCallback(void const * argument)
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+  UNUSED(argument);
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   // Initialize OPAMP2 pins as GPIO.  These are on connector J1.
@@ -2123,7 +2161,8 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-
+  UNUSED(file);
+  UNUSED(line);
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
