@@ -1773,6 +1773,9 @@ void SysClock2(void)
         _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
+    // Configure the Systick interrupt time
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
+
     TPI->ACPR = 7; // 16MHz
 
     __HAL_RCC_PLL_DISABLE(); // Work around HAL_RCC_OscConfig bug.
@@ -1873,6 +1876,9 @@ void SysClock48()
         _Error_Handler(__FILE_NAME__, __LINE__);
     }
 
+    // Configure the Systick interrupt time
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
+
     TPI->ACPR = 7; // 16MHz
 
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_MSI;
@@ -1958,6 +1964,9 @@ void SysClock72()
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
         _Error_Handler(__FILE_NAME__, __LINE__);
     }
+
+    // Configure the Systick interrupt time
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
 
     TPI->ACPR = 7; // 16MHz
 
