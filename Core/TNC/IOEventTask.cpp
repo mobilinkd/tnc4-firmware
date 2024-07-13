@@ -49,6 +49,9 @@ extern IWDG_HandleTypeDef hiwdg;
 
 volatile ConnectionState connectionState = ConnectionState::DISCONNECTED;
 
+uint16_t VREFINT_MIN = 0x0000;
+uint16_t VREFINT_MAX = 0xFFFF;
+
 /**
  * Update the SysClock depending on power and connection state.
  *
@@ -149,10 +152,7 @@ void startIOEventTask(void const*)
     HAL_PCD_MspDeInit(&hpcd_USB_OTG_FS);
 
     if (!go_back_to_sleep) {
-        osMutexRelease(hardwareInitMutexHandle);
-        osThreadResume(modulatorTaskHandle);
-        osThreadResume(audioInputTaskHandle);
-
+        // Normal startup.
         hardware.debug();
 
         initialize_audio();
@@ -165,17 +165,30 @@ void startIOEventTask(void const*)
             updateSysClock();
         }
 
-        osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
+        // Wait to start threads until after potential clock change for USB.
+        // The modulator task cannot start until after EEPROM settings are
+        // loaded or initialized.
+        osThreadResume(modulatorTaskHandle);
+        osThreadResume(audioInputTaskHandle);
+
+        // Disabled while testing ADC watchdog.
+        // osTimerStart(batteryCheckTimerHandle, 600000); // Every 10 minutes.
 
         // Ensure nothing is connected at this point because TNC must get
         // BT device interrupts to configure connection properly.
         bm78_reset();
         bm78_wait_until_ready();
         __HAL_RCC_USART3_CLK_DISABLE(); // UART clock gated until connected.
+        auto status = start_power_monitor();
+        if (status != HAL_OK) {
+            CxxErrorHandler2(status);
+        }
     } else if (powerState == PowerState::POWER_STATE_VBUS) {
+        // Powered off and USB insertion event.
         setUsbConnected();
         osTimerStart(usbShutdownTimerHandle, 2000);
     } else {
+        // Powered off and USB disconnected or low-battery.
         osMessagePut(ioEventQueueHandle, CMD_SHUTDOWN, 0);
     }
 
@@ -185,6 +198,12 @@ void startIOEventTask(void const*)
     bool battery_low = !!(READ_REG(BKUP_TNC_LOWPOWER_STATE) & TNC_LOWPOWER_LOW_BAT);
 
     bool power_button_down = false;
+
+    uint32_t vddErrorNotificationTick = 0U;
+    uint32_t lowPowerNotificationTick = 0U;
+    uint16_t lowerPowerNotificationCount = 0;
+    const uint16_t LOW_POWER_LIMIT = 128;
+    const uint32_t LOW_POWER_TIMEOUT = 500; // 500ms
 
     /* Infinite loop */
     for (;;)
@@ -196,13 +215,59 @@ void startIOEventTask(void const*)
             HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in IO loop (primary refresh).
         }
 
+        if (vddErrorNotificationTick) {
+            if (HAL_GetTick() - vddErrorNotificationTick > 500) {
+                vddErrorNotificationTick = 0;
+                switch (connectionState) {
+                    case ConnectionState::BT_CONNECTED:
+                        indicate_connected_via_ble();
+                        break;
+                    case ConnectionState::USB_CONNECTED:
+                        indicate_connected_via_usb();
+                        break;
+                    case ConnectionState::DISCONNECTED:
+                        indicate_waiting_to_connect();
+                }
+            }
+        }
+
         if (evt.status != osEventMessage)
             continue;
 
         uint32_t cmd = evt.value.v;
         if (cmd < FLASH_BASE) // Assumes FLASH_BASE < SRAM_BASE.
         {
+            uint16_t arg = cmd & 0xFFFF;
+            cmd &= 0x07FF0000;
             switch (cmd) {
+            case CMD_VREFINT_WATCHDOG:
+                if (arg < mobilinkd::tnc::VREFINT_MIN) {
+                    ERROR("VDDA too high");
+                    if (vddErrorNotificationTick == 0) indicate_vdd_error();
+                    vddErrorNotificationTick = HAL_GetTick();
+                } else {
+                    auto const tick = HAL_GetTick();
+                    if (tick - lowPowerNotificationTick > LOW_POWER_TIMEOUT) {
+                        lowerPowerNotificationCount = 1;
+                    } else {
+                        lowerPowerNotificationCount += 1;
+                    }
+                    lowPowerNotificationTick = tick;
+                    if (lowerPowerNotificationCount == LOW_POWER_LIMIT) {
+                        vTaskSuspendAll();
+                        HAL_NVIC_DisableIRQ(BT_STATE1_EXTI_IRQn);
+                        HAL_NVIC_DisableIRQ(BT_STATE2_EXTI_IRQn);
+
+                        HAL_GPIO_WritePin(BT_SLEEP_GPIO_Port, BT_SLEEP_Pin, GPIO_PIN_RESET); // BT module on.
+                        _configure_power_on_disconnect();
+
+                        HAL_PWR_EnableBkUpAccess();
+                        WRITE_REG(BKUP_TNC_LOWPOWER_STATE, TNC_LOWPOWER_VBAT | TNC_LOWPOWER_LOW_BAT | TNC_LOWPOWER_STOP2 | TNC_LOWPOWER_RECONFIG);
+                        HAL_PWR_DisableBkUpAccess();
+                        HAL_NVIC_SystemReset();
+                    }
+                }
+                break;
             case CMD_USB_CDC_CONNECT:
                 if ((connectionState == ConnectionState::DISCONNECTED) && openCDC())
                 {

@@ -55,6 +55,7 @@ extern "C" {
 extern volatile uint32_t low_battery;
 extern volatile uint32_t usb_resume;
 
+void update_power_monitor_timer(void);
 
 typedef enum {WAKE_UP, SHUTDOWN} WakeType;
 
@@ -214,6 +215,9 @@ void _configure_power_on_disconnect(void);
 
 namespace mobilinkd { namespace tnc {
 
+extern uint16_t VREFINT_MIN;
+extern uint16_t VREFINT_MAX;
+
 extern std::atomic<uint32_t> HAL_RCC_ADC_CLK_ENABLE;
 
 /**
@@ -229,6 +233,8 @@ extern std::atomic<uint32_t> HAL_RCC_ADC_CLK_ENABLE;
  *   USB power.
  */
 enum PowerType {UNKNOWN, POWERON, NORMAL, USB, SAFE};
+
+HAL_StatusTypeDef start_power_monitor();
 
 /**
  * Get the current battery level in millivolts.

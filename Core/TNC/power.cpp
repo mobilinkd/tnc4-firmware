@@ -14,7 +14,9 @@
 #include "power.h"
 #include "usb_device.h"
 
-#include "cmsis_os.h"
+#include <stm32l4xx_hal_adc.h>
+
+#include <cmsis_os.h>
 
 #include <atomic>
 
@@ -29,6 +31,7 @@ extern I2C_HandleTypeDef hi2c1;
 extern OPAMP_HandleTypeDef hopamp1;
 extern OPAMP_HandleTypeDef hopamp2;
 extern RNG_HandleTypeDef hrng;
+extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim6;
 extern TIM_HandleTypeDef htim7;
 extern TIM_HandleTypeDef htim8;
@@ -378,7 +381,119 @@ extern "C" void _configure_power_on_disconnect()
     mobilinkd::tnc::configure_power_on_disconnect();
 }
 
+volatile int16_t vrefint_raw = -1;
+
+extern "C" void HAL_ADC_LevelOutOfWindowCallback(ADC_HandleTypeDef *hadc)
+{
+    uint16_t vrefint_raw = HAL_ADC_GetValue(hadc);
+    osMessagePut(ioEventQueueHandle, CMD_VREFINT_WATCHDOG | vrefint_raw, 0);
+}
+
+extern "C" void update_power_monitor_timer()
+{
+    uint32_t pclkFreq = HAL_RCC_GetPCLK1Freq();
+    uint32_t prescaler = (pclkFreq / 250'000U) - 1U;
+
+    __HAL_TIM_SET_PRESCALER(&htim4, prescaler);
+}
+
 namespace mobilinkd { namespace tnc {
+
+uint16_t VREFINT_MIN;
+uint16_t VREFINT_MAX;
+
+/**
+ * This monitors VDDA by monitoring the ADC's reported value for VREFINT. As
+ * VDDA increases, the reported VREFINT value decreases. As VDDA decreases,
+ * the reported VREFINT value increases.
+ * 
+ * VDDA will increase when the audio input exceeds 3.6V. This happens because
+ * the protection diodes on the audio input path dump the excess voltage to VDDA.
+ * 
+ * VDDA will decrease when the battery runs low. It will drop below 3.3V when
+ * the battery drops below about 3.35V. There is a drop-out voltage of about
+ * 20-50mV. The VReg has nominal 1% accuracy (3.267 - 3.333V).
+ * 
+ * The ADC watchdog is configured to trigger outside the 3.25-3.35V range and
+ * report it to the event loop.
+ */
+HAL_StatusTypeDef start_power_monitor()
+{
+    HAL_StatusTypeDef status;
+
+    enable_adc_clk();
+
+    MX_TIM4_Init();
+    update_power_monitor_timer();
+
+    BATTERY_ADC_HANDLE.Instance = ADC1;
+    BATTERY_ADC_HANDLE.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+    BATTERY_ADC_HANDLE.Init.Resolution = ADC_RESOLUTION_12B;
+    BATTERY_ADC_HANDLE.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+    BATTERY_ADC_HANDLE.Init.ScanConvMode = ADC_SCAN_DISABLE;
+    BATTERY_ADC_HANDLE.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+    BATTERY_ADC_HANDLE.Init.LowPowerAutoWait = DISABLE;
+    BATTERY_ADC_HANDLE.Init.ContinuousConvMode = DISABLE;
+    BATTERY_ADC_HANDLE.Init.NbrOfConversion = 1;
+    BATTERY_ADC_HANDLE.Init.DiscontinuousConvMode = DISABLE;
+    BATTERY_ADC_HANDLE.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T4_TRGO;
+    BATTERY_ADC_HANDLE.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+    BATTERY_ADC_HANDLE.Init.DMAContinuousRequests = DISABLE;
+    BATTERY_ADC_HANDLE.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+    BATTERY_ADC_HANDLE.Init.OversamplingMode = DISABLE;
+    status = HAL_ADC_Init(&BATTERY_ADC_HANDLE);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    uint32_t vrefcal = ((uint16_t)*(VREFINT_CAL_ADDR)); // VREFINT at 3.0V, 30C
+    uint32_t VREFINT_NOMINAL = (vrefcal * 30) / 33;     // VREFINT will measure lower at higher VDD.
+    UNUSED(VREFINT_NOMINAL);
+
+    VREFINT_MIN = (vrefcal * 300) / 335;     // VREFINT will measure lower at higher VDD.
+    VREFINT_MAX = (vrefcal * 300) / 325;     // VREFINT will measure higher at lower VDD.
+
+    INFO("VREFINT_NOM = %lu", VREFINT_NOMINAL);
+    INFO("VREFINT_MIN = %hu (3.35V)", VREFINT_MIN);
+    INFO("VREFINT_MAX = %hu (3.25V)", VREFINT_MAX);
+
+    ADC_ChannelConfTypeDef sConfig;
+    sConfig.Channel = ADC_CHANNEL_VREFINT;
+    sConfig.Rank = ADC_REGULAR_RANK_1;
+    sConfig.SingleDiff = ADC_SINGLE_ENDED;
+    sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+    sConfig.OffsetNumber = ADC_OFFSET_NONE;
+    sConfig.Offset = 0;
+    status = HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    ADC_AnalogWDGConfTypeDef wConfig;
+    wConfig.Channel = ADC_CHANNEL_VREFINT;
+    wConfig.HighThreshold = VREFINT_MAX;
+    wConfig.LowThreshold = VREFINT_MIN;
+    wConfig.ITMode = ENABLE;
+    wConfig.WatchdogMode = ADC_ANALOGWATCHDOG_SINGLE_REG;
+    wConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
+    status = HAL_ADC_AnalogWDGConfig(&BATTERY_ADC_HANDLE, &wConfig);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = HAL_ADC_Start(&BATTERY_ADC_HANDLE);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = HAL_TIM_Base_Start(&htim4);
+
+    return status;
+}
 
 uint32_t get_bat_level()
 {
@@ -433,6 +548,7 @@ uint32_t get_bat_level()
     // Order of operations is important to avoid underflow.
     vbat = ((vbat * 3750 / 1000) * vdda) / VMAX;
     uint32_t vref = vdda * vrefint / VMAX;
+    UNUSED(vref);
 
     INFO("Vref = %lumV", vref);
     INFO("Vdda = %lumV", vdda);
@@ -905,6 +1021,7 @@ bool should_wake_from_stop2(int8_t usb_connected)
 
     uint32_t gpio_a = GPIOA->IDR;
     uint32_t gpio_c = GPIOC->IDR;
+    UNUSED(gpio_c);
 
     INFO("GPIOA = 0x%04lx", gpio_a);
     INFO("GPIOC = 0x%04lx", gpio_c);
@@ -1015,6 +1132,7 @@ bool should_wake_from_stop1()
 
     uint32_t gpio_a = GPIOA->IDR;
     uint32_t gpio_c = GPIOC->IDR;
+    UNUSED(gpio_c);
 
     INFO("GPIOA = 0x%04lx", gpio_a);
     INFO("GPIOC = 0x%04lx", gpio_c);
@@ -1023,7 +1141,7 @@ bool should_wake_from_stop1()
 
     MX_GPIO_Init();
 
-    HAL_ADC_Init(&hadc1);
+    HAL_ADC_Init(&BATTERY_ADC_HANDLE);
     if (HAL_ADCEx_Calibration_Start(&BATTERY_ADC_HANDLE, ADC_SINGLE_ENDED) != HAL_OK) Error_Handler();
 
     if (usb_resume) {
@@ -1038,7 +1156,7 @@ bool should_wake_from_stop1()
         }
     }
 
-    if (!result) INFO("back to stop1");
+    if (!result) { INFO("back to stop1"); }
 
     return result;
 }
@@ -1055,7 +1173,7 @@ void enable_interrupts()
     // This also enables VUSB_SENSE.
     HAL_NVIC_ClearPendingIRQ(SW_POWER_EXTI_IRQn);
     HAL_NVIC_ClearPendingIRQ(VUSB_SENSE_EXTI_IRQn);
-    HAL_NVIC_SetPriority(SW_POWER_EXTI_IRQn,5, 0);
+    HAL_NVIC_SetPriority(SW_POWER_EXTI_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(SW_POWER_EXTI_IRQn);
 
     HAL_NVIC_ClearPendingIRQ(SW_BOOT_EXTI_IRQn);
@@ -1069,6 +1187,10 @@ void enable_interrupts()
     HAL_NVIC_ClearPendingIRQ(BT_STATE2_EXTI_IRQn);
     HAL_NVIC_SetPriority(BT_STATE2_EXTI_IRQn, 6, 0);
     HAL_NVIC_EnableIRQ(BT_STATE2_EXTI_IRQn);
+
+    HAL_NVIC_ClearPendingIRQ(ADC1_IRQn);
+    HAL_NVIC_SetPriority(ADC1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(ADC1_IRQn);
 
 #if 0
     HAL_NVIC_ClearPendingIRQ(OVP_ERROR_EXTI_IRQn);

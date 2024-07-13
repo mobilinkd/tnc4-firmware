@@ -43,7 +43,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-void _Error_Handler2(char *file, int line, HAL_StatusTypeDef status);
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -76,6 +75,7 @@ RNG_HandleTypeDef hrng;
 
 RTC_HandleTypeDef hrtc;
 
+TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim7;
 TIM_HandleTypeDef htim8;
@@ -84,9 +84,6 @@ UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
 
-osThreadId defaultTaskHandle;
-uint32_t defaultTaskBuffer[ 256 ];
-osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId ioEventTaskHandle;
 uint32_t ioEventTaskBuffer[ 512 ];
 osStaticThreadDef_t ioEventTaskControlBlock;
@@ -123,10 +120,7 @@ osTimerId powerOffTimerHandle;
 osStaticTimerDef_t powerOffTimerControlBlock;
 osTimerId batteryCheckTimerHandle;
 osStaticTimerDef_t batteryCheckTimerControlBlock;
-osMutexId hardwareInitMutexHandle;
 /* USER CODE BEGIN PV */
-
-osMutexId hardwareInitMutexHandle;
 
 int lost_power = 0;
 int reset_requested = 0;
@@ -166,8 +160,7 @@ extern TIM_HandleTypeDef htim15;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void StartDefaultTask(void const * argument);
-extern void startIOEventTask(void const * argument);
+void startIOEventTask(void const * argument);
 extern void startAudioInputTask(void const * argument);
 extern void startModulatorTask(void const * argument);
 extern void usbShutdownTimerCallback(void const * argument);
@@ -284,6 +277,7 @@ int main(void)
   MX_DMA_Init();
   MX_TIM8_Init();
   MX_RTC_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
     GPIO_PinState power_switch_state = !!(SW_POWER_GPIO_Port->IDR & SW_POWER_Pin);
@@ -605,11 +599,6 @@ int main(void)
 
   /* USER CODE END 2 */
 
-  /* Create the mutex(es) */
-  /* definition and creation of hardwareInitMutex */
-  osMutexDef(hardwareInitMutex);
-  hardwareInitMutexHandle = osMutexCreate(osMutex(hardwareInitMutex));
-
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
 
@@ -617,8 +606,6 @@ int main(void)
   // expects it to be held when it starts and releases it after it has
   // read the configuration from EEPROM, when it is safe to initialize
   // the subsystems which depend on global configuration.
-
-  osMutexWait(hardwareInitMutexHandle, osWaitForever);
 
   /* USER CODE END RTOS_MUTEX */
 
@@ -681,7 +668,6 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-
   /* definition and creation of ioEventTask */
   osThreadStaticDef(ioEventTask, startIOEventTask, osPriorityLow, 0, 512, ioEventTaskBuffer, &ioEventTaskControlBlock);
   ioEventTaskHandle = osThreadCreate(osThread(ioEventTask), NULL);
@@ -1285,6 +1271,51 @@ void MX_RTC_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 32;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 15624;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief TIM6 Initialization Function
   * @param None
   * @retval None
@@ -1822,7 +1853,8 @@ void SysClock2(void)
     HAL_GPIO_WritePin(TCXO_EN_GPIO_Port, TCXO_EN_Pin, GPIO_PIN_RESET);
 
     TPI->ACPR = 0;
-    LED_PWM_TIMER_HANDLE.Instance->PSC = 1;
+    __HAL_TIM_SET_PRESCALER(&LED_PWM_TIMER_HANDLE, 1);
+    update_power_monitor_timer();
 
     // Configure the Systick interrupt time
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
@@ -1910,7 +1942,8 @@ void SysClock48()
     }
 
     TPI->ACPR = 23;
-    LED_PWM_TIMER_HANDLE.Instance->PSC = 47;
+    __HAL_TIM_SET_PRESCALER(&LED_PWM_TIMER_HANDLE, 47);
+    update_power_monitor_timer();
 
     // Configure the Systick interrupt time
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
@@ -1998,7 +2031,8 @@ void SysClock72()
     }
 
     TPI->ACPR = 35;
-    LED_PWM_TIMER_HANDLE.Instance->PSC = 71;
+    __HAL_TIM_SET_PRESCALER(&LED_PWM_TIMER_HANDLE, 71);
+    update_power_monitor_timer();
 
     // Configure the Systick interrupt time
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
@@ -2085,39 +2119,21 @@ void batteryCheckCallback(void const * argument)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_startIOEventTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the ioEventTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const * argument)
+/* USER CODE END Header_startIOEventTask */
+__weak void startIOEventTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
-  UNUSED(argument);
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  // Initialize OPAMP2 pins as GPIO.  These are on connector J1.
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-
-  GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
   /* Infinite loop */
-    for(;;)
-    {
-      osDelay(osWaitForever);
-    }
-
+  for(;;)
+  {
+    osDelay(1);
+  }
   /* USER CODE END 5 */
 }
 
