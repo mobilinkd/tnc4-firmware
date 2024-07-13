@@ -152,6 +152,12 @@ constexpr std::array<LedAction, 9> USBConnectionIndication {
     LedAction{0, 0, 0, 400}
 };
 
+constexpr std::array<LedAction, 3> VDDErrorIndication {
+    LedAction{0, 0, 400, 5},
+    LedAction{0, 0, -2000, 1},
+    LedAction{0, 0, 0, 4},
+};
+
 class RGBIndicator {
     const LedAction* actions = nullptr;
     size_t action_steps = 0;
@@ -299,6 +305,11 @@ void reset_indicator()
 void indicate_initializing_ble(void)
 {
     tx_off();
+}
+
+void indicate_vdd_error(void)
+{
+    mobilinkd::tnc::indicator.start(mobilinkd::tnc::VDDErrorIndication);
 }
 
 void indicate_on()
