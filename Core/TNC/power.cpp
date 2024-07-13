@@ -416,6 +416,13 @@ uint16_t VREFINT_MAX;
  * 
  * The ADC watchdog is configured to trigger outside the 3.25-3.35V range and
  * report it to the event loop.
+ * 
+ * At start-up, the stored VREFINT calibration is used to determine the
+ * nominal min and max values for the ADC windowed watchdog. These values
+ * are stored in VREFINT_MIN and VREFINT_MAX.
+ * 
+ * An interrupt is raised by the watchdog when VREFINT exceeds this range,
+ * indicating a problem with VDDA.
  */
 HAL_StatusTypeDef start_power_monitor()
 {
