@@ -267,6 +267,8 @@ typedef enum {
 
 #define CMD_CHECK_BATTERY (33 << 16)
 #define CMD_VREFINT_WATCHDOG (34 << 16)
+#define CMD_RESTORE_SYSCLK (35 << 16)
+
 
 extern int reset_requested;
 extern char serial_number_64[24];

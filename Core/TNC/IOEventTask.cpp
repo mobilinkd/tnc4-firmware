@@ -94,6 +94,21 @@ static void setUsbConnected()
     HAL_PCDEx_BCD_VBUSDetect(&HPCD);
 }
 
+static void indicate_connection_state(ConnectionState connectionState)
+{
+    switch (connectionState) {
+    case ConnectionState::DISCONNECTED:
+        indicate_waiting_to_connect();
+        break;
+    case ConnectionState::BT_CONNECTED:
+        indicate_connected_via_ble();
+        break;
+    case ConnectionState::USB_CONNECTED:
+        indicate_connected_via_usb();
+        break;
+    }
+}
+
 void startIOEventTask(void const*)
 {
     using namespace mobilinkd::tnc;
@@ -218,16 +233,7 @@ void startIOEventTask(void const*)
         if (vddErrorNotificationTick) {
             if (HAL_GetTick() - vddErrorNotificationTick > 500) {
                 vddErrorNotificationTick = 0;
-                switch (connectionState) {
-                    case ConnectionState::BT_CONNECTED:
-                        indicate_connected_via_ble();
-                        break;
-                    case ConnectionState::USB_CONNECTED:
-                        indicate_connected_via_usb();
-                        break;
-                    case ConnectionState::DISCONNECTED:
-                        indicate_waiting_to_connect();
-                }
+                indicate_connection_state(connectionState);
             }
         }
 
@@ -240,6 +246,9 @@ void startIOEventTask(void const*)
             uint16_t arg = cmd & 0xFFFF;
             cmd &= 0x07FF0000;
             switch (cmd) {
+            case CMD_RESTORE_SYSCLK:
+                updateSysClock();
+                break;
             case CMD_VREFINT_WATCHDOG:
                 if (arg < mobilinkd::tnc::VREFINT_MIN) {
                     ERROR("VDDA too high");
@@ -381,17 +390,10 @@ void startIOEventTask(void const*)
                 INFO("Power Up");
                 power_button_down = false;
                 osTimerStop(powerOffTimerHandle);
-                switch (connectionState) {
-                case ConnectionState::DISCONNECTED:
-                    indicate_waiting_to_connect();
-                    break;
-                case ConnectionState::BT_CONNECTED:
-                    indicate_connected_via_ble();
-                    break;
-                case ConnectionState::USB_CONNECTED:
-                    indicate_connected_via_usb();
-                    break;
-                }
+                stop_power_monitor();
+                get_bat_level();
+                start_power_monitor();
+                indicate_connection_state(connectionState);
                 break;
             case CMD_BOOT_BUTTON_DOWN:
                 TNC_DEBUG("BOOT Down");

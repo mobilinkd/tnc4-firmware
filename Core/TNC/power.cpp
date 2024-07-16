@@ -502,9 +502,36 @@ HAL_StatusTypeDef start_power_monitor()
     return status;
 }
 
+HAL_StatusTypeDef stop_power_monitor()
+{
+    auto status = HAL_ADC_Stop(&BATTERY_ADC_HANDLE);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+    
+    disable_adc_clk();
+
+    ADC_AnalogWDGConfTypeDef wConfig;
+    wConfig.Channel = ADC_CHANNEL_VREFINT;
+    wConfig.HighThreshold = 4095;
+    wConfig.LowThreshold = 0;
+    wConfig.ITMode = DISABLE;
+    wConfig.WatchdogMode = ADC_ANALOGWATCHDOG_NONE;
+    wConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
+    status = HAL_ADC_AnalogWDGConfig(&BATTERY_ADC_HANDLE, &wConfig);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    status = HAL_TIM_Base_Stop(&htim4);
+    return status;
+}
+
 uint32_t get_bat_level()
 {
-    const uint32_t VMAX = 16383;
+    const uint32_t VMAX = 4095;
 
     ADC_ChannelConfTypeDef sConfig;
 
@@ -513,47 +540,92 @@ uint32_t get_bat_level()
     HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_RESET);
     DELAY(1); // Stabilize power.
 
+    BATTERY_ADC_HANDLE.Instance = ADC1;
+    BATTERY_ADC_HANDLE.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+    BATTERY_ADC_HANDLE.Init.Resolution = ADC_RESOLUTION_12B;
+    BATTERY_ADC_HANDLE.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+    BATTERY_ADC_HANDLE.Init.ScanConvMode = ADC_SCAN_DISABLE;
+    BATTERY_ADC_HANDLE.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+    BATTERY_ADC_HANDLE.Init.LowPowerAutoWait = DISABLE;
+    BATTERY_ADC_HANDLE.Init.ContinuousConvMode = DISABLE;
+    BATTERY_ADC_HANDLE.Init.NbrOfConversion = 1;
+    BATTERY_ADC_HANDLE.Init.DiscontinuousConvMode = DISABLE;
+    BATTERY_ADC_HANDLE.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    BATTERY_ADC_HANDLE.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    BATTERY_ADC_HANDLE.Init.DMAContinuousRequests = DISABLE;
+    BATTERY_ADC_HANDLE.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+    BATTERY_ADC_HANDLE.Init.OversamplingMode = DISABLE;
+    auto status = HAL_ADC_Init(&BATTERY_ADC_HANDLE);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
     sConfig.Channel = ADC_CHANNEL_VREFINT;
     sConfig.Rank = ADC_REGULAR_RANK_1;
     sConfig.SingleDiff = ADC_SINGLE_ENDED;
     sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
     sConfig.OffsetNumber = ADC_OFFSET_NONE;
     sConfig.Offset = 0;
-    if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK) Error_Handler();
-
-    if (HAL_ADC_Start(&BATTERY_ADC_HANDLE) != HAL_OK) Error_Handler();
-    if (HAL_ADC_PollForConversion(&BATTERY_ADC_HANDLE, 100) != HAL_OK) Error_Handler();
-    uint32_t vrefint = HAL_ADC_GetValue(&BATTERY_ADC_HANDLE);
-    if (HAL_ADC_Stop(&BATTERY_ADC_HANDLE) != HAL_OK) Error_Handler();
-
-    sConfig.Channel = BATTERY_ADC_CHANNEL;
-    if (HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig) != HAL_OK) Error_Handler();
-
-    uint32_t vbat = 0;
-    for (size_t i = 8; i != 0; --i)
-    {
-        if (HAL_ADC_Start(&BATTERY_ADC_HANDLE) != HAL_OK) Error_Handler();
-        if (HAL_ADC_PollForConversion(&BATTERY_ADC_HANDLE, 100) != HAL_OK) Error_Handler();
-        vbat += HAL_ADC_GetValue(&BATTERY_ADC_HANDLE);
+    status = HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig);
+    if (status != HAL_OK) {
+        CxxErrorHandler2(status);
     }
 
-    vbat >>= 3;
+    status = HAL_ADC_Start(&BATTERY_ADC_HANDLE);
+    if (status != HAL_OK) {
+        CxxErrorHandler2(status);
+    }
 
-    if (HAL_ADC_Stop(&BATTERY_ADC_HANDLE) != HAL_OK) Error_Handler();
+    status = HAL_ADC_PollForConversion(&BATTERY_ADC_HANDLE, 100);
+    if (status != HAL_OK) {
+        CxxErrorHandler2(status);
+    }
+
+    uint32_t vrefint = HAL_ADC_GetValue(&BATTERY_ADC_HANDLE);
+
+    status = HAL_ADC_Stop(&BATTERY_ADC_HANDLE);
+    if (status != HAL_OK) {
+        CxxErrorHandler2(status);
+    }
+
+    sConfig.Channel = BATTERY_ADC_CHANNEL;
+    status = HAL_ADC_ConfigChannel(&BATTERY_ADC_HANDLE, &sConfig);
+    if (status != HAL_OK) {
+        CxxErrorHandler2(status);
+    }
+
+    uint32_t bat = 0;
+    for (size_t i = 8; i != 0; --i)
+    {
+        status = HAL_ADC_Start(&BATTERY_ADC_HANDLE);
+        if (status != HAL_OK) {
+            CxxErrorHandler2(status);
+        }
+
+        status = HAL_ADC_PollForConversion(&BATTERY_ADC_HANDLE, 100);
+        if (status != HAL_OK) {
+            CxxErrorHandler2(status);
+        }
+        bat += HAL_ADC_GetValue(&BATTERY_ADC_HANDLE);
+    }
+
+    bat >>= 3;
 
     HAL_GPIO_WritePin(BAT_DIV_GPIO_Port, BAT_DIV_Pin, GPIO_PIN_SET);
 
     disable_adc_clk();
 
     uint32_t vrefcal = ((uint16_t)*(VREFINT_CAL_ADDR));
-    uint32_t vdda = 3000 * (vrefcal << 2) / vrefint;
+    uint32_t VREFINT_NOMINAL = 30 * vrefcal / 33;
+    uint32_t vdda = 3300 * VREFINT_NOMINAL / vrefint;
 
     INFO("Vrefint = %lu", vrefint);
-    INFO("Vrefcal = %lu", vrefcal);
-    INFO("Vbat = %lu (raw)", vbat);
+    INFO("Vrefcal = %lu", VREFINT_NOMINAL);
+    INFO("Vbat = %lu (raw)", bat);
 
     // Order of operations is important to avoid underflow.
-    vbat = ((vbat * 3750 / 1000) * vdda) / VMAX;
+    uint32_t vbat = ((bat * 3750 / 1000) * vdda) / VMAX;
     uint32_t vref = vdda * vrefint / VMAX;
     UNUSED(vref);
 

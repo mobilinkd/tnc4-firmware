@@ -235,6 +235,7 @@ extern std::atomic<uint32_t> HAL_RCC_ADC_CLK_ENABLE;
 enum PowerType {UNKNOWN, POWERON, NORMAL, USB, SAFE};
 
 HAL_StatusTypeDef start_power_monitor();
+HAL_StatusTypeDef stop_power_monitor();
 
 /**
  * Get the current battery level in millivolts.
