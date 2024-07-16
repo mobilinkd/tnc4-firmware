@@ -222,6 +222,7 @@ int main(void)
     } else if (RCC->CSR & RCC_CSR_IWDGRSTF) {
         resetCause = RESET_CAUSE_IWDG;
     } else if (RCC->CSR & RCC_CSR_PINRSTF) {
+        resetCause = RESET_CAUSE_HARD;
         reset_button = 1;
     } else if (RCC->CSR & RCC_CSR_BORRSTF) {
         resetCause = RESET_CAUSE_BOR;
