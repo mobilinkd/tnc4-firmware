@@ -245,3 +245,20 @@ USB charger. This is required because in order to enable charging, the TNC
 must pull the USB_CE down hard, and this is only possible in the stop modes.
 In addition, when connected to a VUSB
 
+# Building with CMake
+
+By default we use STM32CubeCLT (currently version 1.16.0) for both CMake
+and the GNU utilities. But it can be built with stock CMAKE and GCC from
+your favorite distribution.
+
+Configure the CMake build. Two common build types are "Debug" when debug
+output is needed, and "RelWithDebInfo" to produce a release binary with
+all debugging symbols available.
+
+From the root directory of the repo, run:
+
+    cmake -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake \
+    -S. -Bbuild/Debug -G Ninja
+
+    cmake --build build/Debug --target tnc4-firmware --

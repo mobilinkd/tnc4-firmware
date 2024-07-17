@@ -61,11 +61,15 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
-    ARM_MATH_CM4
     BOOST_DISABLE_ASSERTS
     $<$<CONFIG:Debug>:KISS_LOGGING>
     $<$<CONFIG:Debug>:KISS_LOG_LEVEL=1>
     $<$<CONFIG:Release>:NDEBUG>
+)
+
+target_compile_options(stm32cubemx INTERFACE
+    -fdata-sections -ffunction-sections -fsigned-char -fsingle-precision-constant -fno-inline-functions -ffast-math
+    -fstack-usage --param=large-stack-frame=128 --param=large-stack-frame-growth=50 -fstrict-aliasing --specs=nano.specs
 )
 
 # Add linked libraries
