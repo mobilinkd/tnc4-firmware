@@ -9,12 +9,10 @@ void M17Modulator::init(const kiss::Hardware& hw)
 {
     for (auto& x : buffer_) x = 2048;
 
-    (void) hw; // unused
+    UNUSED(hw);
 
-    SysClock48();
-
-    htim7.Instance->ARR = 999;
-    htim7.Instance->PSC = 0;
+    __HAL_TIM_SET_AUTORELOAD(&htim7, 999);
+    __HAL_TIM_SET_PRESCALER(&htim7, 0);
 
     DAC_ChannelConfTypeDef sConfig;
 

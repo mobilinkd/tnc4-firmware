@@ -9,15 +9,14 @@ void Fsk9600Modulator::init(const kiss::Hardware& hw)
 {
     for (auto& x : buffer_) x = 2048;
 
-    (void) hw; // unused
+    UNUSED(hw);
 
     state = State::STOPPED;
 
-    SysClock72();
-
     // Configure 72MHz clock for 96ksps.
-    htim7.Instance->ARR = 749;
-    htim7.Instance->PSC = 0;
+    
+    __HAL_TIM_SET_AUTORELOAD(&htim7, 749);
+    __HAL_TIM_SET_PRESCALER(&htim7, 0);
 
     DAC_ChannelConfTypeDef sConfig;
 

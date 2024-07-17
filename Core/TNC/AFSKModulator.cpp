@@ -10,8 +10,8 @@ void AFSKModulator::init(const kiss::Hardware &hw)
     set_twist(hw.tx_twist);
 
     // Configure 48MHz clock for 26.4ksps.
-    htim7.Instance->ARR = 1817;
-    htim7.Instance->PSC = 0;
+    __HAL_TIM_SET_AUTORELOAD(&htim7, 1817);
+    __HAL_TIM_SET_PRESCALER(&htim7, 0);
 
     DAC_ChannelConfTypeDef sConfig;
 
