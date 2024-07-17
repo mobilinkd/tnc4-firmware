@@ -247,9 +247,9 @@ In addition, when connected to a VUSB
 
 # Building with CMake
 
-By default we use STM32CubeCLT (currently version 1.16.0) for both CMake
-and the GNU utilities. But it can be built with stock CMAKE and GCC from
-your favorite distribution.
+By default we use STM32CubeCLT (currently version 1.16.0) for both CMake, Ninja,
+and the GNU utilities. But it can be built with stock CMake, Ninja and ARM GCC
+from your favorite Linux distribution.
 
 Configure the CMake build. Two common build types are "Debug" when debug
 output is needed, and "RelWithDebInfo" to produce a release binary with
