@@ -7,8 +7,8 @@ add_library(stm32cubemx INTERFACE)
 enable_language(C ASM)
 
 target_compile_definitions(stm32cubemx INTERFACE 
-    USE_HAL_DRIVER 
-    STM32L4P5xx
+	USE_HAL_DRIVER 
+	STM32L4P5xx
     $<$<CONFIG:Debug>:DEBUG>
 )
 
