@@ -338,6 +338,10 @@ levels_type readLevels(uint32_t)
     }
 
     demodulator->stop();
+    auto status = osMessagePut(ioEventQueueHandle, CMD_RESTORE_SYSCLK, 100);
+    if (status != osOK) {
+        CxxErrorHandler2(HAL_TIMEOUT);
+    }
 
     uint16_t pp = vmax - vmin;
     uint16_t avg = iaccum / BLOCKS;
