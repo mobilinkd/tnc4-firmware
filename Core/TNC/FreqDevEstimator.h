@@ -98,7 +98,7 @@ public:
 
     FloatType normalize(FloatType sample) const
     {
-        return (sample - offset_) * idev_;
+        return sample * idev_;
     }
 
     FloatType evm() const { return stddev_.stdev(); }
