@@ -29,7 +29,7 @@ target_include_directories(tnc PUBLIC
     ../../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
     ../../Drivers/CMSIS/Device/ST/STM32L4xx/Include
     ../../Drivers/CMSIS/Include
-    ../../Drivers/CMSIS/DSP/Include
+    ../../Middlewares/ST/ARM/DSP/Inc
     ../../Core/TNC
     ../../blaze
 )
@@ -74,7 +74,7 @@ target_sources(tnc PRIVATE
 )
 
 target_link_directories(tnc PUBLIC
-    ../../Drivers/CMSIS/DSP/Lib/GCC
+    ../../Middlewares/ST/ARM/DSP/Lib
 )
 
 target_link_libraries(tnc PRIVATE
