@@ -510,7 +510,7 @@ void M17Demodulator::do_frame(float filtered_sample, hdlc::IoFrame*& frame_resul
 
         std::copy(tmp, tmp + len, buffer.begin());
         auto valid = decoder(sync_word_type, buffer, frame_result, ber);
-        INFO("demod: %d, dt: %4dppm, evma: %5d‰, dev: %5d, freq: %5d, dcd: %d, index: %d, %d ber: %d",
+        INFO("demod: %d, dt: %4dppm, evma: %4dpm, dev: %5d, freq: %5d, dcd: %d, index: %d, %d ber: %d",
             int(decoder.state()), int(clock_recovery.clock_estimate() * 1000000),
             int(dev.error() * 1000), int(dev.deviation() * 1000),
             int(dev.offset() * 1000), int(dcd.level() * 1000),
