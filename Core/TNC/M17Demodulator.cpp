@@ -96,7 +96,7 @@ void M17Demodulator::update_values(uint8_t index)
 void M17Demodulator::dcd_on()
 {
     // Data carrier newly detected.
-    INFO("dcd = %d", int(dcd.level() * 1000));
+    INFO("dcd on = %d", int(dcd.level() * 1000));
     dcd_ = true;
     if (demodState == DemodState::UNLOCKED)
     {
@@ -112,7 +112,7 @@ void M17Demodulator::dcd_on()
 void M17Demodulator::dcd_off()
 {
     // Just lost data carrier.
-    INFO("dcd = %d", int(dcd.level() * 1000));
+    INFO("dcd off = %d", int(dcd.level() * 1000));
     demodState = DemodState::UNLOCKED;
     dcd_ = false;
 }
@@ -198,7 +198,7 @@ void M17Demodulator::do_unlocked()
     }
     sync_index = packet_sync(correlator);
     sync_updated = packet_sync.updated();
-    if (sync_updated < 0)
+    if (sync_updated)
     {
         sync_count = MAX_SYNC_COUNT;
         missing_sync_count = 0;
@@ -207,8 +207,11 @@ void M17Demodulator::do_unlocked()
         sample_index = sync_index;
         update_values(sync_index);
         demodState = DemodState::FRAME;
-        sync_word_type = M17FrameDecoder::SyncWordType::BERT;
-        INFO("B sync %d", int(sync_index));
+        // There is almost no sense in recovering a packet after being unlocked.
+        // Packet mode requires the reception of all frames. No frame retransmit
+        // (ARQ) feature exists in M17.
+        sync_word_type = sync_updated > 0 ? M17FrameDecoder::SyncWordType::PACKET : M17FrameDecoder::SyncWordType::BERT;
+        INFO("KB sync %d", int(sync_index));
     }
 }
 
@@ -379,7 +382,7 @@ void M17Demodulator::do_packet_sync()
     auto sync_index = packet_sync(correlator);
     auto sync_updated = packet_sync.updated();
 
-    if (sync_updated)
+    if (sync_updated > 0)
     {
         missing_sync_count = 0;
         update_values(sync_index);
@@ -435,12 +438,12 @@ void M17Demodulator::do_bert_sync()
         missing_sync_count = 0;
         update_values(sync_index);
         sync_word_type = M17FrameDecoder::SyncWordType::BERT;
-        INFO("b sync");
+        INFO("b sync %d", int(sync_index));
         demodState = DemodState::SYNC_WAIT;
     }
     else if (sync_count > MAX_SYNC_COUNT)
     {
-        if (ber >= 0 && ber < STREAM_COST_LIMIT)
+        if (ber >= 0 && ber < BERT_COST_LIMIT)
         {
             // Sync word missed but we are still decoding a stream reasonably well.
             if (!missing_sync_count) missing_sync_count = 1;

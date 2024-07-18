@@ -47,6 +47,7 @@ struct M17Demodulator : IDemodulator
 
     static constexpr int STREAM_COST_LIMIT = 50;
     static constexpr int PACKET_COST_LIMIT = 40;
+    static constexpr int BERT_COST_LIMIT = 85;
     static constexpr uint8_t MAX_MISSING_SYNC = 10;
     static constexpr uint8_t MIN_SYNC_COUNT = 78;
     static constexpr uint8_t MAX_SYNC_COUNT = 87;

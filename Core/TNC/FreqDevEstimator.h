@@ -69,8 +69,8 @@ public:
 
         if (count_ == SYNC_WORD_LEN)
         {
-            auto minAvg = min_ / minCount_;
-            auto maxAvg = max_ / maxCount_;
+            auto minAvg = minCount_ > 0 ? min_ / minCount_ : -1;
+            auto maxAvg = maxCount_ > 0 ? max_ / maxCount_ : 1;
             if (reset_)
             {
                 minFilter_.reset(minAvg);

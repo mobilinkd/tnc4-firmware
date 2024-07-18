@@ -197,6 +197,11 @@ struct SyncWord
         return timing_index_;
     }
 
+    /**
+     * Returns 0 if the sync word was not detected, otherwise it returns
+     * either -1 or 1, depending on whether the inverse or normal sync
+     * was detected.
+     */
     int8_t updated()
     {
         auto result = updated_;
