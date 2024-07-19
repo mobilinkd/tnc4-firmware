@@ -1214,8 +1214,6 @@ void MX_RTC_Init(void)
 
   /* USER CODE BEGIN RTC_Init 0 */
 
-    // Do not initialize RTC if the date/time has been set.
-    if (!(RTC->ICSR & 0x10)) {
   /* USER CODE END RTC_Init 0 */
 
   RTC_TimeTypeDef sTime = {0};
@@ -1242,6 +1240,8 @@ void MX_RTC_Init(void)
   }
 
   /* USER CODE BEGIN Check_RTC_BKUP */
+    // Do not initialize RTC if the date/time has been set.
+    if (!(RTC->ICSR & 0x10)) {
 
   /* USER CODE END Check_RTC_BKUP */
 

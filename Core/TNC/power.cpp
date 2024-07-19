@@ -1100,6 +1100,12 @@ bool should_wake_from_stop2(int8_t usb_connected)
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
     TPI->ACPR = 7;    // 16MHz SysClock -> 2MHz SWO.
+
+    auto status = HAL_RTC_WaitForSynchro(&hrtc);
+    if (status != HAL_OK) {
+        ERROR("HAL_RTC_WaitForSynchro() = %d", status);
+    }
+
     MX_TIM8_Init();    // Needed to re-init PWM timer properly.
     LED_PWM_TIMER_HANDLE.Instance->PSC = 15;
 
