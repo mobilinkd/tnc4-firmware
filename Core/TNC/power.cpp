@@ -636,6 +636,14 @@ uint32_t get_bat_level()
     return vbat;
 }
 
+uint32_t read_battery_level()
+{
+    stop_power_monitor();
+    uint32_t result = get_bat_level();
+    start_power_monitor();
+    return result;
+}
+
 extern "C" int is_battery_low()
 {
     // No need to check for low battery on startup is VBUS is present.

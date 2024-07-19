@@ -141,7 +141,7 @@ float Afsk1200Demodulator::readTwist()
 uint32_t Afsk1200Demodulator::readBatteryLevel()
 {
 #if defined(STM32L4P5xx) || defined(STM32L4Q5xx)
-    return get_bat_level();
+    return read_battery_level();
 #elif !(defined(NUCLEOTNC))
     TNC_DEBUG("enter Afsk1200Demodulator::readBatteryLevel");
 

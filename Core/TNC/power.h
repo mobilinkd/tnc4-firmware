@@ -239,8 +239,15 @@ HAL_StatusTypeDef stop_power_monitor();
 
 /**
  * Get the current battery level in millivolts.
+ * 
+ * @pre The VDDA monitor is not running.
  */
 uint32_t get_bat_level();
+
+/**
+ * Stops the VDDA monitor, reads the battery level, then restarts the VDDA monitor.
+ */
+uint32_t read_battery_level();
 
 /**
  * Enable the analog domain (ADCs, OPAMPS, DAC in normal mode) and the
