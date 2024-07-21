@@ -151,6 +151,8 @@ struct Fsk9600Modulator : Modulator
         ptt_->off();
     }
 
+    PTT* get_ptt() const { return ptt_; }
+
     void send(uint8_t bit) override
     {
         auto scrambled = lfsr(bit);
@@ -217,6 +219,7 @@ struct Fsk9600Modulator : Modulator
 
     void empty(uint16_t* buffer)
     {
+        HAL_IWDG_Refresh(&hiwdg);
         switch (state)
         {
         case State::STARTING:

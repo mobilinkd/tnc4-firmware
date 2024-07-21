@@ -224,9 +224,10 @@ void startIOEventTask(void const*)
     for (;;)
     {
         osEvent evt = osMessageGet(ioEventQueueHandle, 100);
-        if (hdlc::ioFramePool().size() != 0) {
-            // If the IO event loop is inactive or the frame pool is empty
-            // for too long, the TNC is essentially non-functional.
+        if (hdlc::ioFramePool().size() != 0 && !getModulator().get_ptt()->state()) {
+            // If the IO event loop is inactive or the frame pool is empty for
+            // too long, the TNC is essentially non-functional. When  transmitting,
+            // the modulator is responsible for updating the watchdog.
             HAL_IWDG_Refresh(&hiwdg); // Refresh IWDG in IO loop (primary refresh).
         }
 
@@ -360,6 +361,7 @@ void startIOEventTask(void const*)
                     connectionState = ConnectionState::DISCONNECTED;
                     osMessagePut(audioInputQueueHandle, audio::IDLE, osWaitForever);
                     kiss::getAFSKTestTone().stop();
+                    getModulator().abort();
                     closeCDC();
                     INFO("CDC Closed");
 
@@ -453,6 +455,7 @@ void startIOEventTask(void const*)
                 osMessagePut(audioInputQueueHandle, audio::IDLE,
                     osWaitForever);
                 kiss::getAFSKTestTone().stop();
+                getModulator().abort();
                 INFO("BT Closed");
                 updateSysClock();
                 configure_power_on_disconnect();

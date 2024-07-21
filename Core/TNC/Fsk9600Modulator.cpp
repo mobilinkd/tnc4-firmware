@@ -37,6 +37,8 @@ void Fsk9600Modulator::init(const kiss::Hardware& hw)
 
 void Fsk9600Modulator::fill(uint16_t* buffer, uint8_t bits)
 {
+    HAL_IWDG_Refresh(&hiwdg);
+
     for (uint8_t i = 0; i != BLOCKSIZE; ++i) {
         symbols[i] = (bits & 0x80 ? UPSAMPLE : -UPSAMPLE);
         bits <<= 1;

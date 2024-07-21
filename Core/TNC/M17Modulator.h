@@ -15,6 +15,8 @@
 #include <atomic>
 #include <cstdint>
 
+extern IWDG_HandleTypeDef hiwdg;
+
 namespace mobilinkd { namespace tnc {
 
 /**
@@ -97,6 +99,8 @@ struct M17Modulator : Modulator
         ptt_ = ptt;
         ptt_->off();
     }
+
+    PTT* get_ptt() const { return ptt_; }
 
     void send(uint8_t bits) override
     {
@@ -330,6 +334,8 @@ private:
     [[gnu::noinline]]
     void fill(int16_t* buffer, uint8_t bits)
     {
+        HAL_IWDG_Refresh(&hiwdg);
+
         if (send_tone)
         {
             fill_tone(buffer);
@@ -371,6 +377,7 @@ private:
     [[gnu::noinline]]
     void fill_empty(int16_t* buffer)
     {
+        HAL_IWDG_Refresh(&hiwdg);
         send_tone = false;
         for (size_t i = 0; i != TRANSFER_LEN; ++i)
         {

@@ -108,6 +108,8 @@ struct AFSKModulator : Modulator
         }
     }
 
+    PTT* get_ptt() const { return ptt_; }
+
     void set_twist(uint8_t twist) {twist_ = twist;}
 
     void send(uint8_t bit) override
@@ -137,6 +139,7 @@ struct AFSKModulator : Modulator
 
     void fill(uint16_t* buffer, bool bit)
     {
+        HAL_IWDG_Refresh(&hiwdg);
         for (size_t i = 0; i != BIT_LEN; i++)
         {
             int s = sin_table[pos_];
@@ -186,6 +189,7 @@ struct AFSKModulator : Modulator
 
     void empty()
     {
+        HAL_IWDG_Refresh(&hiwdg);
         switch (running_) {
         case 1:
             running_ = 0;
