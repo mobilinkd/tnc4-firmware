@@ -398,7 +398,7 @@ void M17Encoder::create_link_setup(tnc::hdlc::IoFrame* frame, FrameType type)
 {
     using namespace mobilinkd::tnc::kiss;
 
-    const LinkSetupFrame::call_t SRC = {'M','B','L','K','D','T','N','C','3',0};
+    const LinkSetupFrame::call_t SRC = {'M','B','L','K','D','T','N','C','4',0};
 
     switch (type)
     {
