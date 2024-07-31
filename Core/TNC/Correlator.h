@@ -124,6 +124,11 @@ struct Indicator
     {
         HAL_GPIO_WritePin(gpio, pin, GPIO_PIN_RESET);
     }
+
+    void toggle()
+    {
+        HAL_GPIO_TogglePin(gpio, pin);
+    }
 };
 
 template <typename Correlator>
@@ -170,6 +175,7 @@ struct SyncWord
             {
                 samples_.fill(0);
                 triggered_ = true;
+                INFO("trigger = %d, limit = %d", int(value), int(correlator.limit()));
             }
             samples_[correlator.index()] = value;
         }
@@ -212,6 +218,6 @@ struct SyncWord
 
 namespace m17 {
 
-using Correlator = ::mobilinkd::Correlator<float, 8,10>;
+using Correlator = ::mobilinkd::Correlator<float, 8, 10>;
 
 }} // mobilinkd::m17
