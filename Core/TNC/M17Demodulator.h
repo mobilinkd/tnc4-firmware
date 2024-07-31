@@ -60,7 +60,7 @@ struct M17Demodulator : IDemodulator
 
     audio_filter_t demod_filter;
     std::array<float, ADC_BLOCK_SIZE> demod_buffer;
-    m17::DataCarrierDetect<float, SAMPLE_RATE, 400> dcd{2400, 3600, 0.8f, 10.0f};
+    DataCarrierDetect<float, SAMPLE_RATE, 400> dcd{2400, 3600, 0.8f, 10.0f};
     m17::ClockRecovery<float, SAMPLES_PER_SYMBOL> clock_recovery;
 
     m17::Correlator correlator;
