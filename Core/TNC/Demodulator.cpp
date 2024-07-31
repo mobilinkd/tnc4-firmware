@@ -20,29 +20,27 @@ namespace mobilinkd { namespace tnc {
  */
 void IDemodulator::startADC(uint32_t period, uint32_t block_size)
 {
+    HAL_StatusTypeDef status;
+
     audio::set_adc_block_size(block_size);
 
-    htim6.Instance->ARR = period;
+    __HAL_TIM_SET_AUTORELOAD(&htim6, period);
 
-    if (HAL_TIM_Base_Start(&htim6) != HAL_OK)
-    {
-        CxxErrorHandler();
-    }
-
-    if (HAL_ADC_Start_DMA(&DEMODULATOR_ADC_HANDLE, audio::adc_buffer,
-        audio::dma_transfer_size) != HAL_OK)
-    {
-        CxxErrorHandler();
-    }
+    status = HAL_TIM_Base_Start(&htim6);
+    if (status != HAL_OK) CxxErrorHandler2(status);
+    status = HAL_ADC_Start_DMA(&DEMODULATOR_ADC_HANDLE, audio::adc_buffer, audio::dma_transfer_size);
+    if (status != HAL_OK) CxxErrorHandler2(status);
     INFO("IDemodulator::startADC");
 }
 
 void IDemodulator::stopADC()
 {
-    if (HAL_ADC_Stop_DMA(&DEMODULATOR_ADC_HANDLE) != HAL_OK)
-        CxxErrorHandler();
-    if (HAL_TIM_Base_Stop(&htim6) != HAL_OK)
-        CxxErrorHandler();
+    HAL_StatusTypeDef status;
+
+    status = HAL_ADC_Stop_DMA(&DEMODULATOR_ADC_HANDLE);
+    if (status != HAL_OK) CxxErrorHandler2(status);
+    status = HAL_TIM_Base_Stop(&htim6);
+    if (status != HAL_OK) CxxErrorHandler2(status);
     INFO("IDemodulator::stopADC");
 }
 
