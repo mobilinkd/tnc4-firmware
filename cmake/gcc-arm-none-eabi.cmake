@@ -45,7 +45,7 @@ set(CXX_WARNING_FLAGS "${C_WARNING_FLAGS} -Wno-psabi -Wno-dangling-reference")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TARGET_FLAGS} ${CXX_WARNING_FLAGS}")
 
 set(CMAKE_C_LINK_FLAGS "${TARGET_FLAGS}")
-set(CMAKE_C_LINK_FLAGS "${CMAKE_C_LINK_FLAGS} -T \"${CMAKE_SOURCE_DIR}/STM32L4P5RETX_FLASH.ld\"")
+set(CMAKE_C_LINK_FLAGS "${CMAKE_C_LINK_FLAGS} -T \"${CMAKE_SOURCE_DIR}/TNC4.ld\"")
 set(CMAKE_C_LINK_FLAGS "${CMAKE_C_LINK_FLAGS} -Wl,-Map=${CMAKE_PROJECT_NAME}.map -Wl,--gc-sections")
 set(CMAKE_C_LINK_FLAGS "${CMAKE_C_LINK_FLAGS} -Wl,--start-group -lc -lm -Wl,--end-group")
 set(CMAKE_C_LINK_FLAGS "${CMAKE_C_LINK_FLAGS} -Wl,--print-memory-usage -fpermissive -fdata-sections -ffunction-sections -fpermissive -fsigned-char -fsingle-precision-constant -fno-inline-functions -ffast-math -fstack-usage --param=large-stack-frame=128 --param=large-stack-frame-growth=50 -fstrict-aliasing --specs=nano.specs -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit --specs=nosys.specs")
