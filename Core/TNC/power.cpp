@@ -412,21 +412,25 @@ uint16_t VREFINT_MAX;
  * 
  * VDDA will decrease when the battery runs low. It will drop below 3.3V when
  * the battery drops below about 3.35V. There is a drop-out voltage of about
- * 20-50mV. The VReg has nominal 1% accuracy (3.267 - 3.333V).
+ * 20-50mV. The VReg has nominal 2.5% accuracy (3.218 - 3.383V). VREFINT has
+ * a calibrated output within 1% over the nominal temperature range.
  * 
- * The ADC watchdog is configured to trigger outside the 3.25-3.35V range and
- * report it to the event loop.
+ * The ADC watchdog is configured to trigger outside the 3.18-3.42V range (about
+ * 3.5%) and report it to the event loop.
  * 
  * At start-up, the stored VREFINT calibration is used to determine the
  * nominal min and max values for the ADC windowed watchdog. These values
  * are stored in VREFINT_MIN and VREFINT_MAX.
  * 
- * An interrupt is raised by the watchdog when VREFINT exceeds this range,
+ * An interrupt is raised by the ADC watchdog when VREFINT exceeds this range,
  * indicating a problem with VDDA.
  */
 HAL_StatusTypeDef start_power_monitor()
 {
     HAL_StatusTypeDef status;
+
+    static constexpr int VDDA_MAX_MV = 3420;
+    static constexpr int VDDA_MIN_MV = 3180;
 
     enable_adc_clk();
 
@@ -458,12 +462,12 @@ HAL_StatusTypeDef start_power_monitor()
     uint32_t VREFINT_NOMINAL = (vrefcal * 30) / 33;     // VREFINT will measure lower at higher VDD.
     UNUSED(VREFINT_NOMINAL);
 
-    VREFINT_MIN = (vrefcal * 300) / 335;     // VREFINT will measure lower at higher VDD.
-    VREFINT_MAX = (vrefcal * 300) / 325;     // VREFINT will measure higher at lower VDD.
+    VREFINT_MIN = (vrefcal * 3000) / VDDA_MAX_MV;     // VREFINT will measure lower at higher VDD.
+    VREFINT_MAX = (vrefcal * 3000) / VDDA_MIN_MV;     // VREFINT will measure higher at lower VDD.
 
     INFO("VREFINT_NOM = %lu", VREFINT_NOMINAL);
-    INFO("VREFINT_MIN = %hu (3.35V)", VREFINT_MIN);
-    INFO("VREFINT_MAX = %hu (3.25V)", VREFINT_MAX);
+    INFO("VREFINT_MIN = %hu (%dmV)", VREFINT_MIN, VDDA_MAX_MV);
+    INFO("VREFINT_MAX = %hu (%dmV)", VREFINT_MAX, VDDA_MIN_MV);
 
     ADC_ChannelConfTypeDef sConfig;
     sConfig.Channel = ADC_CHANNEL_VREFINT;
