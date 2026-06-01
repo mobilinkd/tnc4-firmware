@@ -217,6 +217,7 @@ IoFramePool& ioFramePool(void);
  * @param frame
  */
 void release(IoFrame* frame);
+void add_ref(IoFrame* frame);
 
 IoFrame* acquire(void);
 IoFrame* acquire_wait(void);
