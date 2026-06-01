@@ -177,6 +177,12 @@ public:
         return result;
     }
 
+    void add_ref(frame_type* frame) {
+        auto x = taskENTER_CRITICAL_FROM_ISR();
+        frame->ref_count_ += 1;
+        taskEXIT_CRITICAL_FROM_ISR(x);
+    }
+
     void release(frame_type* frame) {
         frame->clear();
         auto x = taskENTER_CRITICAL_FROM_ISR();
