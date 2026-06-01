@@ -76,6 +76,9 @@ private:
     uint16_t compute_crc(iterator first, iterator last) {return 0;}
 #endif
 
+    template <typename, size_t>
+    friend class FramePool;
+
 public:
     Frame()
     : list_base_hook<>(), data_(), crc_(-1), fcs_(-2), complete_(false),
@@ -184,9 +187,12 @@ public:
     }
 
     void release(frame_type* frame) {
-        frame->clear();
         auto x = taskENTER_CRITICAL_FROM_ISR();
-        free_list_.push_back(*frame);
+        if (--frame->ref_count_ == 0)
+        {
+            frame->clear();
+            free_list_.push_back(*frame);
+        }
         taskEXIT_CRITICAL_FROM_ISR(x);
     }
 };
