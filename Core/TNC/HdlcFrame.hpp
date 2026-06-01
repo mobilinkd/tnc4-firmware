@@ -45,6 +45,7 @@ private:
     int fcs_{-2};
     bool complete_{false};
     uint8_t frame_type_{Type::DATA};
+    uint8_t ref_count_{1};
 
 #ifndef EXCLUDE_CRC
     uint16_t compute_crc(iterator first) {
@@ -77,7 +78,8 @@ private:
 
 public:
     Frame()
-    : list_base_hook<>(), data_(), crc_(-1), fcs_(-2), complete_(false)
+    : list_base_hook<>(), data_(), crc_(-1), fcs_(-2), complete_(false),
+      ref_count_(1)
     {}
 
     uint8_t type() const {return frame_type_ & 0x0F;}
@@ -92,6 +94,7 @@ public:
         fcs_ = -2;
         complete_ = false;
         frame_type_ = 0;    // RF_DATA.
+        ref_count_ = 1;
     }
 
     void assign(data_type& data) {
@@ -107,6 +110,8 @@ public:
     bool complete() const {return complete_;}
 
     bool ok() const {return crc_ == 0x0f47; /*0xf0b8;*/}
+
+    uint8_t ref_count() const { return ref_count_; }
 
     typename data_type::iterator begin() { return data_.begin(); }
     typename data_type::iterator end() { return data_.end(); }
