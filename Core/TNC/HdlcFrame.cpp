@@ -20,6 +20,11 @@ void release(IoFrame* frame)
     ioFramePool().release(frame);
 }
 
+void add_ref(IoFrame* frame)
+{
+    ioFramePool().add_ref(frame);
+}
+
 IoFrame* acquire()
 {
     auto result = ioFramePool().acquire();
