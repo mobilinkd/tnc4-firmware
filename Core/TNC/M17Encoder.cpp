@@ -173,6 +173,7 @@ void M17Encoder::process_packet(tnc::hdlc::IoFrame* frame, FrameType type)
             {
                 if (!do_csma())     // Wait for channel to clear.
                 {
+                    notify_completion(frame, tnc::hdlc::TxResult::CSMA_TIMEOUT);
                     release(frame);
                     WARN("Could not send frame; channel busy.");
                     return;
@@ -196,6 +197,7 @@ void M17Encoder::process_packet(tnc::hdlc::IoFrame* frame, FrameType type)
     default:
         ERROR("M17 encoder bad state");
     }
+    notify_completion(frame, tnc::hdlc::TxResult::SENT);
     release(frame);
 }
 
@@ -212,6 +214,7 @@ void M17Encoder::process_stream(tnc::hdlc::IoFrame* frame, FrameType type)
             // todo: check for stream frame type.
             if (!back2back) send_preamble();
             create_link_setup(frame, type);
+            notify_completion(frame, tnc::hdlc::TxResult::SENT);
             release(frame);
             send_link_setup();
             state = State::ACTIVE;
