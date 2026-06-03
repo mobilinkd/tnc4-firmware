@@ -54,6 +54,8 @@ private:
     bool complete_{false};
     uint8_t frame_type_{Type::DATA};
     uint8_t ref_count_{1};
+    osMessageQId tx_completion_queue_{0};
+    TxResult tx_result_{TxResult::NONE};
 
 #ifndef EXCLUDE_CRC
     uint16_t compute_crc(iterator first) {
@@ -99,6 +101,12 @@ public:
     uint8_t source() const {return frame_type_ & 0xF0;}
     void source(uint8_t s) {frame_type_ |= ((frame_type_ & 0x0F) | s);}
 
+    osMessageQId tx_completion_queue() const { return tx_completion_queue_; }
+    void tx_completion_queue(osMessageQId q) { tx_completion_queue_ = q; }
+
+    TxResult tx_result() const { return tx_result_; }
+    void tx_result(TxResult r) { tx_result_ = r; }
+
     void clear() {
         data_.clear();
         crc_ = -1;
@@ -106,6 +114,8 @@ public:
         complete_ = false;
         frame_type_ = 0;    // RF_DATA.
         ref_count_ = 1;
+        tx_completion_queue_ = 0;
+        tx_result_ = TxResult::NONE;
     }
 
     void assign(data_type& data) {
