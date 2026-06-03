@@ -25,6 +25,14 @@ using boost::intrusive::list_base_hook;
 using boost::intrusive::list;
 using boost::intrusive::constant_time_size;
 
+enum class TxResult : uint8_t
+{
+    NONE = 0,           // Not transmitted yet
+    SENT = 1,           // Frame transmitted successfully
+    CSMA_TIMEOUT = 2,   // CSMA timed out, frame dropped
+    ABORTED = 3,        // Transmission aborted (DAC underrun, etc.)
+};
+
 template <typename POOL, POOL* allocator>
 class Frame : public list_base_hook<>
 {
