@@ -204,6 +204,7 @@ struct Encoder : public ::mobilinkd::Encoder
 
         if (send_delay_) {
             if (not do_csma()) {
+                notify_completion(frame, TxResult::CSMA_TIMEOUT);
                 release(frame);
                 return;
             }
@@ -217,8 +218,17 @@ struct Encoder : public ::mobilinkd::Encoder
         }
 
         for (auto c : *frame) send(c);
+        notify_completion(frame, TxResult::SENT);
         release(frame);
         send_tail();
+    }
+
+    void notify_completion(IoFrame* frame, TxResult result) {
+        auto q = frame->tx_completion_queue();
+        if (q) {
+            frame->tx_result(result);
+            osMessagePut(q, reinterpret_cast<uint32_t>(frame), 0);
+        }
     }
 
     void send_delay() {

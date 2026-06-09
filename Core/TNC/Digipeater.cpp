@@ -4,6 +4,9 @@
 #include "Digipeater.hpp"
 #include "Digipeater.h"
 #include "IOEventTask.h"
+#include "HdlcFrame.hpp"
+
+extern osMessageQId hdlcOutputQueueHandle;
 
 /*
  * APRS Digipeater implementation.
@@ -26,6 +29,9 @@ void startDigipeaterTask(void* arg)
 {
   using mobilinkd::tnc::Digipeater;
   using mobilinkd::tnc::hdlc::IoFrame;
+  using mobilinkd::tnc::hdlc::TxResult;
+  using mobilinkd::tnc::hdlc::add_ref;
+  using mobilinkd::tnc::hdlc::release;
 
   auto digi = static_cast<Digipeater*>(arg);
   for(;;)
@@ -40,13 +46,27 @@ void startDigipeaterTask(void* arg)
       return;
     }
 
-    digi->clean_history();
-
     auto frame = static_cast<IoFrame*>(evt.value.p);
+
+    // Check if this is a TX completion notification
+    if (frame->tx_result() != TxResult::NONE)
+    {
+        // Frame came back from modulator — TX is complete.
+        // tx_result() is SENT, CSMA_TIMEOUT, or ABORTED.
+        release(frame);  // Release digipeater's reference
+        continue;
+    }
+
+    digi->clean_history();
 
     if (!digi->can_repeat(frame)) continue;
 
-//    auto digi_frame = digi->rewrite_frame(frame);
+    auto digi_frame = digi->rewrite_frame(frame);
+    add_ref(digi_frame);  // Digipeater holds a reference
+    digi_frame->tx_completion_queue(digipeaterQueueHandle);
+    osMessagePut(hdlcOutputQueueHandle,
+        reinterpret_cast<uint32_t>(digi_frame),
+        osWaitForever);
 
   }
 }

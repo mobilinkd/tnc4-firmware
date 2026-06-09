@@ -89,6 +89,14 @@ private:
 
     static void encoderTask(void const*);
 
+    void notify_completion(tnc::hdlc::IoFrame* frame, tnc::hdlc::TxResult result) {
+        auto q = frame->tx_completion_queue();
+        if (q) {
+            frame->tx_result(result);
+            osMessagePut(q, reinterpret_cast<uint32_t>(frame), 0);
+        }
+    }
+
     void process_packet(tnc::hdlc::IoFrame*, FrameType type);
     void process_stream(tnc::hdlc::IoFrame*, FrameType type);
 
