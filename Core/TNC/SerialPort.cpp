@@ -49,8 +49,8 @@ void log_frame(mobilinkd::tnc::hdlc::IoFrame* frame)
 {
     int pos = 0;
     for (auto c: *frame) {
-        if (isprint(int(c))) pos += sprintf((char*)tmpBuffer2 + pos, " %c ", c);
-        else pos += sprintf((char*)tmpBuffer2 + pos, "/%02x", c);
+        if (isprint(int(c))) pos += snprintf((char*)tmpBuffer2 + pos, sizeof(tmpBuffer2) - pos, " %c ", c);
+        else pos += snprintf((char*)tmpBuffer2 + pos, sizeof(tmpBuffer2) - pos, "/%02x", c);
         if (pos > 80) {
           TNC_DEBUG((char*)tmpBuffer2);
           pos = 0;
@@ -284,6 +284,7 @@ extern "C" void idleInterruptCallback(UART_HandleTypeDef* huart)
     if (len > RX_BUFFER_SIZE) {
         // Second half
         len = len - RX_BUFFER_SIZE;
+        if (len > RX_BUFFER_SIZE) len = RX_BUFFER_SIZE;
         memmove(block->buffer + 1, rxBuffer + RX_BUFFER_SIZE, len);
     } else {
         // First half
