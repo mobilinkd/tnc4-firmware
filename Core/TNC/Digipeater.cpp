@@ -88,8 +88,9 @@ static void beaconTimerCallback(void const* arg)
             call_part[call_len] = '\0';
             ssid = std::atoi(dash + 1);
         } else {
-            std::strncpy(call_part, addr_buf, 6);
-            call_part[6] = '\0';
+            size_t copy_len = std::min(strlen(addr_buf), size_t(6));
+            for (size_t i = 0; i < copy_len; i++) call_part[i] = addr_buf[i];
+            call_part[copy_len] = '\0';
         }
 
         // Encode to 7-byte shifted format
@@ -138,7 +139,7 @@ void start_beacon_timers()
 {
     using namespace mobilinkd::tnc::kiss;
 
-    for (int i = 0; i < NUMBER_OF_BEACONS; i++) {
+    for (size_t i = 0; i < NUMBER_OF_BEACONS; i++) {
         beacon_contexts[i].slot = i;
         beacon_contexts[i].digi = nullptr;
 

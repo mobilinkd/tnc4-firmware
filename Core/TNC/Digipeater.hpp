@@ -211,34 +211,65 @@ struct Digipeater
     }
 
     /**
-     * Parse the AX.25 destination callsign from the linear buffer.
-     * Returns true if the frame should be considered for digipeating.
-     */
-    bool is_aprs_frame()
-    {
-        // AX.25 dest is first 7 bytes: callsign(6) + SSID(1)
-        // APRS uses TOCALL starting with "AP" (e.g., "APML30", "APRS", etc.)
-        // We also digipeat ALL, BEACON, CQ, QST, GPSxxx, and our own TOCALL
-        if (linear_len_ < 7) return false;
+     * Compare a 6-byte shifted AX.25 callsign against an unshifted ASCII string.
+      * Returns true if they match (ignoring trailing spaces in the AX.25 field).
+      */
+     bool match_shifted_callsign(const uint8_t* shifted, const char* unshifted, size_t unshifted_len)
+     {
+         for (size_t i = 0; i < 6; i++) {
+             char c = shifted[i] >> 1;
+             if (i < unshifted_len) {
+                 if (c != unshifted[i]) return false;
+             } else if (c != ' ') {
+                 return false; // Expected trailing space
+             }
+         }
+         return true;
+     }
 
-        // Check for special APRS TOCALLs
-        const char* dest = reinterpret_cast<const char*>(linear_buf_.data());
-        // APRS-IS: AP followed by letters/digits
-        if (dest[0] == 'A' && dest[1] == 'P') return true;
-        // Other digipeated TOCALLs
-        if (std::strncmp(dest, "ALL", 3) == 0) return true;
-        if (std::strncmp(dest, "BEACON", 6) == 0) return true;
-        if (std::strncmp(dest, "CQ", 2) == 0) return true;
-        if (std::strncmp(dest, "QST", 3) == 0) return true;
-        if (std::strncmp(dest, "GPS", 3) == 0) return true;
-        // Also digipeat frames addressed directly to us or our aliases
-        for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
-            auto& a = aliases_[i];
-            if (!a.set || !a.use) continue;
-            if (std::strncmp(dest, a.call.data(), 6) == 0) return true;
-        }
-        return false;
-    }
+     /**
+      * Compare a 6-byte shifted AX.25 callsign against an 8-byte call_t.
+      * call_t is NUL-padded — compare up to the NUL or first 6 chars.
+      */
+     bool match_shifted_callsign(const uint8_t* shifted, const kiss::call_t& call)
+     {
+         for (size_t i = 0; i < 6; i++) {
+             char c = shifted[i] >> 1;
+             char ref = (i < call.size() && call[i] != '\0') ? call[i] : ' ';
+             if (c != ref) return false;
+         }
+         return true;
+     }
+
+     /**
+      * Returns true if the frame should be considered for digipeating.
+      * Buffer bytes are AX.25 shifted (left by 1).
+      */
+     bool is_aprs_frame()
+     {
+         if (linear_len_ < 7) return false;
+
+         // Right-shift the 6-byte destination callsign
+         char dest[7];
+         for (int i = 0; i < 6; i++) dest[i] = linear_buf_[i] >> 1;
+         dest[6] = '\0';
+
+         // APRS TOCALLs start with "AP"
+         if (dest[0] == 'A' && dest[1] == 'P') return true;
+         // Other digipeated TOCALLs
+         if (std::strncmp(dest, "ALL", 3) == 0) return true;
+         if (std::strncmp(dest, "BEACON", 6) == 0) return true;
+         if (std::strncmp(dest, "CQ", 2) == 0) return true;
+         if (std::strncmp(dest, "QST", 3) == 0) return true;
+         if (std::strncmp(dest, "GPS", 3) == 0) return true;
+         // Also digipeat frames addressed to our aliases
+         for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
+             auto& a = aliases_[i];
+             if (!a.set || !a.use) continue;
+             if (match_shifted_callsign(linear_buf_.data(), a.call)) return true;
+         }
+         return false;
+     }
 
     /**
      * Parse AX.25 frame from linear buffer into from/to/path components.
@@ -335,11 +366,11 @@ struct Digipeater
      * Can the frame be digipeated?
      *
      * Rules:
-     * 1. Must be a UI frame (not a test frame to ourselves)
+     * 1. Must be a UI frame
      * 2. Must be an APRS frame (dest starts with AP, ALL, BEACON, CQ, QST, or GPS)
      * 3. Must not be addressed to us directly (prevent loops)
      * 4. Must not be in dedupe history
-     * 5. Must match an active alias
+     * 5. Must match an active alias via AX.25 address field comparison
      */
     const kiss::Alias* can_repeat(hdlc::IoFrame* frame)
     {
@@ -348,120 +379,59 @@ struct Digipeater
         copy_to_linear(frame);
         if (linear_len_ < 14) return nullptr;
 
-        // Check if it's an APRS frame
         if (!is_aprs_frame()) return nullptr;
 
-        // Don't digipeat frames addressed to us
+        // Don't digipeat frames addressed to us. Buffer has shifted bytes,
+        // mycall is unshifted ASCII. Right-shift buffer, compare against mycall.
         auto& hw = kiss::settings();
-        const char* dest = reinterpret_cast<const char*>(linear_buf_.data());
-        if (std::strncmp(dest, hw.mycall.data(), 6) == 0) return nullptr;
+        if (match_shifted_callsign(linear_buf_.data(), hw.mycall.data(), 6)) return nullptr;
 
-        // Don't digipeat frames we've already digipeated (check if we're in the path)
-        size_t path_start = 14;
-        while (path_start + 7 <= linear_len_) {
-            bool matches = true;
-            for (int i = 0; i < 6; i++) {
-                if ((linear_buf_[path_start + i] >> 1) != (hw.mycall[i] >> 1)) {
-                    matches = false;
-                    break;
-                }
-            }
-            if (matches) return nullptr; // Already digipeated by us
-            if (linear_buf_[path_start + 6] & 0x80) break;
-            path_start += 7;
+        // Don't digipeat if our callsign already appears in the path
+        // (already repeated by us). Scan all digipeater addresses.
+        size_t path_end = 14;
+        while (path_end + 7 <= linear_len_) {
+            // Check bit 7 (H-bit): has-been-repeated
+            bool repeated = (linear_buf_[path_end + 6] & 0x80) != 0;
+            if (repeated && match_shifted_callsign(linear_buf_.data() + path_end, hw.mycall.data(), 6))
+                return nullptr; // Already digipeated by us
+            // Bit 0 (C-bit): 1 = last address, 0 = more follow
+            if (linear_buf_[path_end + 6] & 0x01) break;
+            path_end += 7;
         }
 
         // Check dedupe
         uint32_t crc = compute_dedupe_key(linear_buf_.data(), linear_len_);
         if (is_duplicate(crc)) return nullptr;
 
-        // Match against active aliases
-        // We need to find the first non-set digipeater address in the path
-        path_start = 14;
-        size_t addr_idx = 0;
-        while (path_start + 7 <= linear_len_ && addr_idx < 8) {
-            bool is_set = (linear_buf_[path_start + 6] & 0x80) != 0;
-            if (!is_set) {
-                // This address hasn't been used yet -- check if it matches an alias
-                char addr[7] = {};
-                for (int i = 0; i < 6; i++) addr[i] = linear_buf_[path_start + i] >> 1;
-                // Trim trailing spaces
-                for (int i = 5; i >= 0; i--) {
-                    if (addr[i] == ' ') addr[i] = '\0';
-                    else break;
-                }
+        // Scan for first unmatched digipeater address matching an alias.
+        // Each AX.25 address is 7 bytes: 6 shifted ASCII + 1 SSID byte.
+        // SSID byte: bits 1-4 = SSID value (hop count for n-N),
+        // bit 7 (H-bit) = has-been-repeated (set by digipeater that used it),
+        // bit 0 (C-bit) = last address marker.
+        size_t pos = 14;
+        while (pos + 7 <= linear_len_) {
+            bool repeated = (linear_buf_[pos + 6] & 0x80) != 0;
+            if (!repeated) {
+                // SSID value = bits 1-4 (right-shift by 1, mask 0x0F)
+                uint8_t ssid = (linear_buf_[pos + 6] >> 1) & 0x0F;
 
-                // Check n-N type matching (WIDE, TRACE, RELAY, etc. at any hop count)
-                for (size_t ii = 0; ii < kiss::NUMBER_OF_ALIASES; ii++) {
-                    auto& a = aliases_[ii];
+                for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
+                    auto& a = aliases_[i];
                     if (!a.set || !a.use || a.hops == 0) continue;
-                    // Strip SSID from alias if present for comparison
-                    const char* alias_str = a.call.data();
-                    if (std::strncmp(addr, alias_str, std::strlen(alias_str)) == 0) {
-                        // Match! Record this frame for dedupe
+
+                    if (!match_shifted_callsign(linear_buf_.data() + pos, a.call))
+                        continue;
+
+                    // For n-N routing, the SSID value is the current hop count.
+                    // Match if the hop count is within our configured limit.
+                    if (ssid > 0 && ssid <= a.hops) {
                         record_frame(crc);
                         return &a;
                     }
                 }
-
-                // Check for WIDEn-N, TRACEn-N style matching against n-N aliases
-                // Extract base name and hop count
-                char base[7] = {};
-                int hop_count = 0;
-                int max_hops = 0;
-                for (int i = 0; i < 6; i++) {
-                    if (addr[i] >= '0' && addr[i] <= '9') {
-                        // Found hop count start
-                        char num_buf[4] = {};
-                        int ni = 0;
-                        while (i + ni < 6 && addr[i + ni] >= '0' && addr[i + ni] <= '9' && ni < 3) {
-                            num_buf[ni] = addr[i + ni];
-                            ni++;
-                        }
-                        // Try parsing two numbers: hop_count-max_hops
-                        hop_count = 0;
-                        // Check for hyphen separator
-                        int hop_end = i + ni;
-                        if (hop_end < 6 && addr[hop_end] == '-') {
-                            // Single number before hyphen, rest after
-                            char hop_buf[4] = {};
-                            strncpy(hop_buf, num_buf, ni);
-                            hop_count = atoi(hop_buf);
-                            // max_hops after hyphen
-                            int mi = 0;
-                            int mj = hop_end + 1;
-                            while (mj < 6 && addr[mj] >= '0' && addr[mj] <= '9' && mi < 3) {
-                                num_buf[mi] = addr[mj];
-                                mi++;
-                                mj++;
-                            }
-                            num_buf[mi] = '\0';
-                            max_hops = atoi(num_buf);
-                        } else {
-                            max_hops = atoi(num_buf);
-                            hop_count = max_hops; // Used, so hop_count == max_hops
-                        }
-                        base[i] = '\0';
-                        break;
-                    }
-                    base[i] = addr[i];
-                }
-
-                for (size_t jj = 0; jj < kiss::NUMBER_OF_ALIASES; jj++) {
-                    auto& a = aliases_[jj];
-                    if (!a.set || !a.use || a.hops == 0) continue;
-                    const char* alias_str = a.call.data();
-                    if (std::strncmp(base, alias_str, std::strlen(alias_str)) == 0) {
-                        if (max_hops <= a.hops) {
-                            record_frame(crc);
-                            return &a;
-                        }
-                    }
-                }
             }
-            if (linear_buf_[path_start + 6] & 0x80) break;
-            path_start += 7;
-            addr_idx++;
+            if (linear_buf_[pos + 6] & 0x01) break; // last address
+            pos += 7;
         }
 
         return nullptr;
