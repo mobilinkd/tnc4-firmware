@@ -167,8 +167,11 @@ constexpr std::array<uint8_t, 2> EXT_SET_MODEM_TYPE = {0xC1, 0x82};
 constexpr std::array<uint8_t, 2> EXT_GET_MODEM_TYPES = {0xC1, 0x83};    ///< Return a list of supported modem types
 
 constexpr std::array<uint8_t, 2> EXT_GET_ALIASES = {0xC1, 0x88};        ///< Number of aliases supported
-constexpr std::array<uint8_t, 2> EXT_GET_ALIAS = {0xC1, 0x89};          ///< Alias number (uint8_t), 8 characters, 5 bytes (set, use, insert_id, preempt, hops)
-constexpr std::array<uint8_t, 2> EXT_SET_ALIAS = {0xC1, 0x8A};          ///< Alias number (uint8_t), 8 characters, 5 bytes (set, use, insert_id, preempt, hops)
+constexpr std::array<uint8_t, 2> EXT_GET_ALIAS = {0xC1, 0x89};          ///< Alias number (uint8_t), 8 chars, 3 bytes (set, use, hops)
+constexpr std::array<uint8_t, 2> EXT_SET_ALIAS = {0xC1, 0x8A};          ///< Alias number (uint8_t), 8 chars, 3 bytes (set, use, hops)
+
+constexpr std::array<uint8_t, 2> EXT_GET_DIGIPEATER = {0xC1, 0x8B};     ///< Get digipeater settings (5 bytes)
+constexpr std::array<uint8_t, 2> EXT_SET_DIGIPEATER = {0xC1, 0x8F};     ///< Set digipeater settings (5 bytes)
 
 constexpr std::array<uint8_t, 2> EXT_GET_BEACON_SLOTS = {0xC1, 0x8C};   ///< Number of beacons supported
 constexpr std::array<uint8_t, 2> EXT_GET_BEACON = {0xC1, 0x8D};         ///< Beacon number (uint8_t), uint16_t interval in seconds, 3 NUL terminated strings (callsign, path, text)
@@ -184,6 +187,14 @@ constexpr uint8_t MODEM_TYPE_300 = 2;
 constexpr uint8_t MODEM_TYPE_9600 = 3;
 constexpr uint8_t MODEM_TYPE_PSK31 = 4;
 constexpr uint8_t MODEM_TYPE_M17 = 5;
+
+// Routing mode flags for digipeater: only one of PREEMPT_FRONT/TRUNCATE/DROP/MARK may be set.
+constexpr uint8_t ROUTING_PREEMPT_FRONT    = 0x01;
+constexpr uint8_t ROUTING_PREEMPT_TRUNCATE = 0x02;
+constexpr uint8_t ROUTING_PREEMPT_DROP     = 0x04;
+constexpr uint8_t ROUTING_PREEMPT_MARK     = 0x08;
+constexpr uint8_t ROUTING_SUBSTITUTE       = 0x40;
+constexpr uint8_t ROUTING_SKIP_COMPLETE    = 0x80;
 
 // Boolean options.
 #define KISS_OPTION_CONN_TRACK      0x01
@@ -210,10 +221,8 @@ struct Alias {
     call_t call;                ///< Callsign.  Pad unused with NUL.
     bool set;                   ///< Alias is configured.
     bool use;                   ///< Use this alias.
-    bool insert_id;             ///< Tracing.
-    bool preempt;               ///< Allow out of order pathing.
-    uint8_t hops;
-}; // size = 10
+    uint8_t hops;               ///< Hop count remaining
+}; // size = 11
 
 const size_t BEACON_PATH_LEN = 30;
 const size_t BEACON_TEXT_LEN = 128;
@@ -276,6 +285,9 @@ struct Hardware
     call_t mycall;
 
     uint8_t dedupe_seconds;          ///< number of seconds to dedupe packets.
+    uint8_t digipeater_enabled;      ///< Digipeater master enable (0/1).
+    uint8_t routing_mode;            ///< Global digipeater routing mode flags.
+    uint8_t digipeater_reserved[2];  ///< Reserved, must be 0.
     Alias aliases[NUMBER_OF_ALIASES];   ///< Digipeater aliases
     Beacon beacons[NUMBER_OF_BEACONS];  ///< Beacons
     uint16_t checksum;      ///< Validity check of param data (CRC16)
@@ -326,6 +338,9 @@ struct Hardware
       strcpy(mycall.data(), "NOCALL");
 
       dedupe_seconds = 30;
+      digipeater_enabled = 0;
+      routing_mode = 0;
+      memset(digipeater_reserved, 0, sizeof(digipeater_reserved));
       memset(aliases, 0, sizeof(aliases));
       memset(beacons, 0, sizeof(beacons));
       update_crc();
@@ -350,13 +365,13 @@ struct Hardware
         TNC_DEBUG("Options:  %04hx", options);
         TNC_DEBUG("MYCALL: %s", mycall.data());
         TNC_DEBUG("Dedupe time (secs): %d", (int)dedupe_seconds);
+        TNC_DEBUG("Digi enabled: %d", (int)digipeater_enabled);
+        TNC_DEBUG("Routing mode: 0x%02x", (int)routing_mode);
         TNC_DEBUG("Aliases:");
         for (auto& a : aliases) {
             if (!a.set) continue;
             TNC_DEBUG(" call: %s", a.call.data());
             TNC_DEBUG(" use: %d", (int)a.use);
-            TNC_DEBUG(" insert: %d", (int)a.insert_id);
-            TNC_DEBUG(" preempt: %d", (int)a.preempt);
             TNC_DEBUG(" hops: %d", (int)a.hops);
         }
         TNC_DEBUG("Beacons:");
@@ -385,7 +400,7 @@ struct Hardware
 
     void get_aliases();
     void get_alias(uint8_t alias);
-    void set_alias(const hdlc::IoFrame* frame);
+    void set_alias(hdlc::IoFrame* frame);
 
     bool rx_rev_polarity() const
     {
@@ -399,7 +414,7 @@ struct Hardware
 
     void announce_input_settings();
 
-}; // 812 bytes
+}; // 804 bytes
 
 extern Hardware& settings();
 

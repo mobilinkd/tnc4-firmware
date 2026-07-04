@@ -1,17 +1,15 @@
-// Copyright 2017 Rob Riggs <rob@mobilinkd.com>
+// Copyright 2026 Mobilinkd LLC <rob@mobilinkd.com>
 // All rights reserved.
 
 #ifndef MOBILINKD__TNC__DIGIPEATER_H_
 #define MOBILINKD__TNC__DIGIPEATER_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "cmsis_os.h"
 
+extern osThreadId digipeaterTaskHandle;
+extern osMessageQId digipeaterQueueHandle;
+
+void startDigipeaterTask(void* arg);
 void beacon(void* arg);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* MOBILINKD__TNC__DIGIPEATER_H_ */
+#endif // MOBILINKD__TNC__DIGIPEATER_H_

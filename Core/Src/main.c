@@ -31,6 +31,7 @@
 #include "bm78.h"
 #include "KissHardware.h"
 #include "Log.h"
+#include "Digipeater.h"
 #include "power.h"
 
 
@@ -93,6 +94,9 @@ osStaticThreadDef_t audioInputTaskControlBlock;
 osThreadId modulatorTaskHandle;
 uint32_t modulatorTaskBuffer[ 384 ];
 osStaticThreadDef_t modulatorTaskControlBlock;
+osThreadId digipeaterTaskHandle;
+uint32_t digipeaterTaskBuffer[ 256 ];
+osStaticThreadDef_t digipeaterTaskControlBlock;
 osMessageQId ioEventQueueHandle;
 uint8_t ioEventQueueBuffer[ 16 * sizeof( uint32_t ) ];
 osStaticMessageQDef_t ioEventQueueControlBlock;
@@ -114,6 +118,9 @@ osStaticMessageQDef_t adcInputQueueControlBlock;
 osMessageQId m17EncoderInputQueueHandle;
 uint8_t m17EncoderInputQueueBuffer[ 3 * sizeof( void* ) ];
 osStaticMessageQDef_t m17EncoderInputQueueControlBlock;
+osMessageQId digipeaterQueueHandle;
+uint8_t digipeaterQueueBuffer[ 8 * sizeof( uint32_t ) ];
+osStaticMessageQDef_t digipeaterQueueControlBlock;
 osTimerId usbShutdownTimerHandle;
 osStaticTimerDef_t usbShutdownTimerControlBlock;
 osTimerId powerOffTimerHandle;
@@ -663,6 +670,9 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+  /* definition and creation of digipeaterQueue */
+  osMessageQStaticDef(digipeaterQueue, 8, uint32_t, digipeaterQueueBuffer, &digipeaterQueueControlBlock);
+  digipeaterQueueHandle = osMessageCreate(osMessageQ(digipeaterQueue), NULL);
 
 #pragma GCC diagnostic pop
 
@@ -683,6 +693,9 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  /* definition and creation of digipeaterTask */
+  osThreadStaticDef(digipeaterTask, startDigipeaterTask, osPriorityNormal, 0, 256, digipeaterTaskBuffer, &digipeaterTaskControlBlock);
+  digipeaterTaskHandle = osThreadCreate(osThread(digipeaterTask), NULL);
   osThreadSuspend(modulatorTaskHandle);
   osThreadSuspend(audioInputTaskHandle);
 

@@ -181,20 +181,33 @@ void ext_reply(const std::array<uint8_t, M>& cmd, const std::array<uint8_t, N>& 
 }
 
 void Hardware::get_alias(uint8_t alias) {
-    uint8_t result[14];
+    uint8_t result[12];
     if (alias >= NUMBER_OF_ALIASES or not aliases[alias].set) return;
     result[0] = alias;
     memcpy(result + 1, aliases[alias].call.data(), aliases[alias].call.size());
     result[9] = aliases[alias].set;
     result[10] = aliases[alias].use;
-    result[11] = aliases[alias].insert_id;
-    result[12] = aliases[alias].preempt;
-    result[13] = aliases[alias].hops;
-    reply_ext(hardware::EXT_GET_ALIASES, result, 14);
+    result[11] = aliases[alias].hops;
+    reply_ext(hardware::EXT_GET_ALIASES, result, 12);
 }
 
-void Hardware::set_alias(const hdlc::IoFrame* frame) {
-  UNUSED(frame);
+void Hardware::set_alias(hdlc::IoFrame* frame) {
+    auto it = frame->begin();
+    ++it; // skip frame type
+    // Extended command bytes already consumed by handle_ext_request.
+    uint8_t alias = *it++;
+    if (alias >= NUMBER_OF_ALIASES) {
+        ERROR("set_alias: invalid alias %d", alias);
+        return;
+    }
+    auto& a = aliases[alias];
+    for (size_t i = 0; i < a.call.size(); i++) {
+        a.call[i] = *it++;
+    }
+    a.set = *it++;
+    a.use = *it++;
+    a.hops = *it;
+    update_crc();
 }
 
 void Hardware::announce_input_settings()
@@ -627,6 +640,41 @@ void Hardware::handle_ext_request(hdlc::IoFrame* frame) {
         TNC_DEBUG("EXT_GET_MODEM_TYPES");
         ext_reply(hardware::EXT_GET_MODEM_TYPES, supported_modem_types);
         break;
+    case hardware::EXT_GET_ALIASES[1]: {
+        TNC_DEBUG("EXT_GET_ALIASES");
+        uint8_t count = NUMBER_OF_ALIASES;
+        ext_reply(hardware::EXT_GET_ALIASES, count);
+        break;
+    }
+    case hardware::EXT_GET_ALIAS[1]: {
+        TNC_DEBUG("EXT_GET_ALIAS");
+        get_alias(*it);
+        break;
+    }
+    case hardware::EXT_SET_ALIAS[1]: {
+        TNC_DEBUG("EXT_SET_ALIAS");
+        set_alias(frame);
+        break;
+    }
+    case hardware::EXT_GET_DIGIPEATER[1]: {
+        TNC_DEBUG("EXT_GET_DIGIPEATER");
+        uint8_t reply[3] = {
+            digipeater_enabled,
+            routing_mode,
+            dedupe_seconds
+        };
+        reply_ext(hardware::EXT_GET_DIGIPEATER, reply, 3);
+        break;
+    }
+    case hardware::EXT_SET_DIGIPEATER[1]: {
+        TNC_DEBUG("EXT_SET_DIGIPEATER");
+        digipeater_enabled = *it++;
+        routing_mode = *it++;
+        dedupe_seconds = *it++;
+        update_crc();
+        ext_reply(hardware::EXT_SET_DIGIPEATER, hardware::EXT_OK);
+        break;
+    }
     default:
         ERROR("Unknown extended hardware request");
     }

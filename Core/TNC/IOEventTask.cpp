@@ -13,6 +13,7 @@
 #include "KissHardware.hpp"
 #include "ModulatorTask.hpp"
 #include "Modulator.hpp"
+#include "Digipeater.hpp"
 #include "UsbPort.hpp"
 #include "SerialPort.hpp"
 #include "NullPort.hpp"
@@ -604,6 +605,19 @@ void startIOEventTask(void const*)
             if ((frame->type() & 0x0F) == IoFrame::DATA)
             {
                 kiss::getAFSKTestTone().stop();
+
+                // Fork to digipeater if enabled
+                if (kiss::settings().digipeater_enabled && digipeaterQueueHandle)
+                {
+                    hdlc::add_ref(frame);
+                    if (osMessagePut(digipeaterQueueHandle,
+                        reinterpret_cast<uint32_t>(frame),
+                        0) != osOK)
+                    {
+                        hdlc::release(frame); // Digipeater didn't get its ref
+                    }
+                }
+
                 if (osMessagePut(hdlcOutputQueueHandle,
                     reinterpret_cast<uint32_t>(frame),
                     osWaitForever) != osOK)
