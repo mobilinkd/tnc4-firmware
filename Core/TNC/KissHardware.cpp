@@ -338,9 +338,10 @@ void Hardware::get_beacon(uint8_t slot)
     }
     path_str[path_len] = '\0';
 
-    size_t dest_len = ::strnlen(beacon.dest.data(), beacon.dest.size());
-    size_t text_len = ::strnlen(
-        reinterpret_cast<const char*>(beacon.text), BEACON_TEXT_LEN);
+    size_t dest_len = 0;
+    while (dest_len < beacon.dest.size() && beacon.dest[dest_len]) dest_len++;
+    size_t text_len = 0;
+    while (text_len < BEACON_TEXT_LEN && beacon.text[text_len]) text_len++;
 
     // Reply: [ext_cmd(2)] [slot(1)] [interval_H(1)] [interval_L(1)]
     //        [dest(NUL)] [path(NUL)] [text(NUL)]

@@ -76,10 +76,10 @@ static void beaconTimerCallback(void const* arg)
     frame->push_back(0xF0);
 
     // Information field: beacon text
-    size_t text_len = ::strnlen(
-        reinterpret_cast<const char*>(beacon.text), kiss::BEACON_TEXT_LEN);
-    for (size_t i = 0; i < text_len; i++) {
-        if (!frame->push_back(beacon.text[i])) {
+    for (size_t i = 0; i < kiss::BEACON_TEXT_LEN; i++) {
+        char c = static_cast<char>(beacon.text[i]);
+        if (c == '\0') break;
+        if (!frame->push_back(static_cast<uint8_t>(c))) {
             ERROR("Beacon: OOM pushing text");
             hdlc::release(frame);
             return;
