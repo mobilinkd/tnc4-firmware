@@ -210,6 +210,163 @@ void Hardware::set_alias(hdlc::IoFrame* frame) {
     update_crc();
 }
 
+void Hardware::set_beacon(hdlc::IoFrame* frame)
+{
+    auto it = frame->begin();
+    ++it; // skip frame type
+    uint8_t beacon_num = *it++;
+    if (beacon_num >= NUMBER_OF_BEACONS) {
+        ERROR("set_beacon: invalid slot %d", beacon_num);
+        return;
+    }
+
+    auto& beacon = beacons[beacon_num];
+
+    // Interval (2 bytes, network byte order)
+    uint16_t interval = static_cast<uint16_t>((*it++) << 8);
+    interval |= *it++;
+
+    // Destination string (NUL-terminated)
+    beacon.dest.fill(0);
+    for (size_t i = 0; i < beacon.dest.size(); i++) {
+        char c = static_cast<char>(*it++);
+        beacon.dest[i] = c;
+        if (c == '\0') break;
+    }
+
+    // Read path string into local buffer
+    char path_buf[32];
+    size_t pi = 0;
+    for (; pi < sizeof(path_buf); pi++) {
+        char c = static_cast<char>(*it++);
+        path_buf[pi] = c;
+        if (c == '\0') break;
+    }
+    // If path exceeded buffer, advance iterator past any trailing data
+    if (pi == sizeof(path_buf)) {
+        while (*it++ != '\0');
+        path_buf[sizeof(path_buf) - 1] = '\0';
+    } else {
+        path_buf[pi] = '\0';
+    }
+
+    // Read text string (NUL-terminated)
+    for (size_t i = 0; i < BEACON_TEXT_LEN; i++) {
+        char c = static_cast<char>(*it++);
+        beacon.text[i] = static_cast<uint8_t>(c);
+        if (c == '\0') break;
+    }
+    beacon.text[BEACON_TEXT_LEN] = '\0';
+
+    // Parse path into pre-encoded AX.25 addresses
+    beacon.path_count = 0;
+    std::memset(beacon.path, 0, sizeof(beacon.path));
+
+    const char* pos = path_buf;
+    while (*pos && beacon.path_count < BEACON_MAX_PATH_ADDRS) {
+        // Find comma or end-of-string
+        const char* end = pos;
+        while (*end && *end != ',') end++;
+
+        // Find dash within address segment
+        const char* dash = nullptr;
+        for (const char* q = pos; q < end; q++) {
+            if (*q == '-') { dash = q; break; }
+        }
+
+        // Callsign (up to 6 chars)
+        const char* call_start = pos;
+        size_t call_len = dash
+            ? static_cast<size_t>(dash - pos)
+            : static_cast<size_t>(end - pos);
+        if (call_len > 6) call_len = 6;
+
+        // SSID (0-15)
+        int ssid = 0;
+        if (dash) {
+            for (const char* q = dash + 1; q < end && *q >= '0' && *q <= '9'; q++) {
+                ssid = ssid * 10 + (*q - '0');
+            }
+            if (ssid > 15) ssid = 15;
+        }
+
+        // Encode to 7-byte AX.25 address: 6 shifted bytes + SSID byte
+        auto& addr = beacon.path[beacon.path_count];
+        for (size_t i = 0; i < 6; i++) {
+            char c = (i < call_len) ? call_start[i] : ' ';
+            addr[i] = static_cast<uint8_t>(c << 1);
+        }
+        addr[6] = static_cast<uint8_t>((ssid << 1) & 0x1E); // bits 1-4 = SSID
+
+        beacon.path_count++;
+        pos = (*end == ',') ? end + 1 : end;
+    }
+
+    beacon.seconds = interval;
+    update_crc();
+}
+
+void Hardware::get_beacon(uint8_t slot)
+{
+    if (slot >= NUMBER_OF_BEACONS) return;
+
+    auto& beacon = beacons[slot];
+
+    // Reconstruct path string from pre-encoded addresses
+    char path_str[64];
+    size_t path_len = 0;
+    for (uint8_t i = 0; i < beacon.path_count; i++) {
+        if (i > 0) path_str[path_len++] = ',';
+
+        // Decode callsign: right-shift, trim trailing spaces
+        char call[7];
+        size_t call_len = 0;
+        for (int j = 0; j < 6; j++) {
+            char c = static_cast<char>(beacon.path[i][j] >> 1);
+            if (c != ' ') call[call_len++] = c;
+        }
+        call[call_len] = '\0';
+
+        for (size_t j = 0; j < call_len; j++) path_str[path_len++] = call[j];
+
+        uint8_t ssid = (beacon.path[i][6] >> 1) & 0x0F;
+        if (ssid > 0) {
+            path_str[path_len++] = '-';
+            if (ssid >= 10) path_str[path_len++] = static_cast<char>('0' + (ssid / 10));
+            path_str[path_len++] = static_cast<char>('0' + (ssid % 10));
+        }
+    }
+    path_str[path_len] = '\0';
+
+    size_t dest_len = ::strnlen(beacon.dest.data(), beacon.dest.size());
+    size_t text_len = ::strnlen(
+        reinterpret_cast<const char*>(beacon.text), BEACON_TEXT_LEN);
+
+    // Reply: [ext_cmd(2)] [slot(1)] [interval_H(1)] [interval_L(1)]
+    //        [dest(NUL)] [path(NUL)] [text(NUL)]
+    size_t total = 2 + 1 + 2 + dest_len + 1 + path_len + 1 + text_len + 1;
+    auto buf = static_cast<uint8_t*>(alloca(total));
+    if (buf == nullptr) return;
+
+    size_t pos = 0;
+    buf[pos++] = hardware::EXT_GET_BEACON[0];
+    buf[pos++] = hardware::EXT_GET_BEACON[1];
+    buf[pos++] = slot;
+    buf[pos++] = static_cast<uint8_t>((beacon.seconds >> 8) & 0xFF);
+    buf[pos++] = static_cast<uint8_t>(beacon.seconds & 0xFF);
+    std::memcpy(buf + pos, beacon.dest.data(), dest_len);
+    pos += dest_len;
+    buf[pos++] = 0;
+    std::memcpy(buf + pos, path_str, path_len);
+    pos += path_len;
+    buf[pos++] = 0;
+    std::memcpy(buf + pos, beacon.text, text_len);
+    pos += text_len;
+    buf[pos++] = 0;
+
+    ioport->write(buf, pos, 6, osWaitForever);
+}
+
 void Hardware::announce_input_settings()
 {
     reply16(hardware::GET_INPUT_GAIN, input_gain);
@@ -673,6 +830,23 @@ void Hardware::handle_ext_request(hdlc::IoFrame* frame) {
         dedupe_seconds = *it++;
         update_crc();
         ext_reply(hardware::EXT_SET_DIGIPEATER, hardware::EXT_OK);
+        break;
+    }
+    case hardware::EXT_GET_BEACON_SLOTS[1]: {
+        TNC_DEBUG("EXT_GET_BEACON_SLOTS");
+        uint8_t count = NUMBER_OF_BEACONS;
+        ext_reply(hardware::EXT_GET_BEACON_SLOTS, count);
+        break;
+    }
+    case hardware::EXT_GET_BEACON[1]: {
+        TNC_DEBUG("EXT_GET_BEACON");
+        get_beacon(*it);
+        break;
+    }
+    case hardware::EXT_SET_BEACON[1]: {
+        TNC_DEBUG("EXT_SET_BEACON");
+        set_beacon(frame);
+        ext_reply(hardware::EXT_SET_BEACON, hardware::EXT_OK);
         break;
     }
     default:

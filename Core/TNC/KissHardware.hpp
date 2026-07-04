@@ -224,18 +224,32 @@ struct Alias {
     uint8_t hops;               ///< Hop count remaining
 }; // size = 11
 
-const size_t BEACON_PATH_LEN = 30;
 const size_t BEACON_TEXT_LEN = 128;
+const size_t BEACON_MAX_PATH_ADDRS = 4;
 
+/**
+ * Beacon configuration stored in EEPROM.
+ *
+ * The path is stored as pre-encoded AX.25 addresses (6 shifted bytes + 1 SSID
+ * byte each) so that the beacon timer callback can construct the frame with
+ * pure byte operations and no string parsing.
+ *
+ * Each path address byte layout:
+ *   [0..5]: ASCII callsign << 1, space-padded to 6 chars
+ *   [6]:    (ssid << 1) | flags
+ *           flags: bit 7 (H-bit) = 0 (we're initiating, not repeating)
+ *                  bit 0 (C-bit) = 0 (set during frame construction)
+ */
 struct Beacon {
-    call_t dest;                        ///< callsign.  Pad unused with NUL.
-    uint8_t path[BEACON_PATH_LEN + 1];  ///< NUL terminated string.
-    uint8_t text[BEACON_TEXT_LEN + 1];  ///< NUL terminated string.
-    uint16_t seconds;                   ///< Number of seconds between beacons.
-}; // size = 170
+    call_t dest;                            ///< callsign.  Pad unused with NUL.
+    uint8_t path[BEACON_MAX_PATH_ADDRS][7]; ///< Pre-encoded AX.25 path addresses.
+    uint8_t path_count;                     ///< Number of addresses in path (0-4).
+    uint8_t text[BEACON_TEXT_LEN + 1];      ///< NUL terminated string.
+    uint16_t seconds;                       ///< Number of seconds between beacons.
+}; // size = 8 + 28 + 1 + 129 + 2 = 168
 
 const size_t NUMBER_OF_ALIASES = 8;     // 80 bytes
-const size_t NUMBER_OF_BEACONS = 4;     // 680 bytes
+const size_t NUMBER_OF_BEACONS = 4;     // 672 bytes
 
 /**
  * Values from the KISS settings (including hardware settings) which are
@@ -378,7 +392,7 @@ struct Hardware
         for (auto& b : this->beacons) {
             if (b.seconds == 0) continue;
             TNC_DEBUG(" dest: %s", b.dest.data());
-            TNC_DEBUG(" path: %s", (char*)b.path);
+            TNC_DEBUG(" path: %d addrs", (int)b.path_count);
             TNC_DEBUG(" text: %s", (char*)b.text);
             TNC_DEBUG(" frequency (secs): %d", (int)b.seconds);
         }
@@ -401,6 +415,9 @@ struct Hardware
     void get_aliases();
     void get_alias(uint8_t alias);
     void set_alias(hdlc::IoFrame* frame);
+
+    void get_beacon(uint8_t slot);
+    void set_beacon(hdlc::IoFrame* frame);
 
     bool rx_rev_polarity() const
     {

@@ -28,7 +28,6 @@ static void beaconTimerCallback(void const* arg)
 {
     using namespace mobilinkd::tnc;
     using namespace mobilinkd::tnc::hdlc;
-    using mobilinkd::tnc::kiss::Beacon;
     using mobilinkd::tnc::kiss::settings;
     using mobilinkd::tnc::kiss::NUMBER_OF_BEACONS;
 
@@ -37,83 +36,48 @@ static void beaconTimerCallback(void const* arg)
 
     if (beacon.seconds == 0) return; // Slot not configured
 
-    // Build an AX.25 frame: dest(7) + src(7) + path + ctrl(0x03) + pid(0xF0) + info
-    // Total must fit in an IoFrame
-
     auto frame = hdlc::acquire();
     if (frame == nullptr) {
         ERROR("Beacon: OOM");
         return;
     }
 
-    // Encode destination (7 bytes: 6 char + SSID, shifted left by 1)
+    // Destination address: 6 shifted chars + SSID byte.
+    // call_t is char[8] NUL-padded; treat NUL as space for AX.25.
     for (size_t i = 0; i < 6; i++) {
-        char c = (i < strnlen(beacon.dest.data(), 6)) ? beacon.dest[i] : ' ';
-        frame->push_back(c << 1);
+        char c = beacon.dest[i] ? beacon.dest[i] : ' ';
+        frame->push_back(static_cast<uint8_t>(c << 1));
     }
-    frame->push_back(0x00); // no SSID, not last
+    // C-bit: 0 if path follows, 1 if direct (no path).
+    frame->push_back(beacon.path_count > 0 ? 0x00 : 0x01);
 
-    // Encode source (MYCALL, 7 bytes)
+    // Source address (mycall): 6 shifted chars + SSID byte.
     auto& mycall = settings().mycall;
     for (size_t i = 0; i < 6; i++) {
-        frame->push_back(mycall[i] << 1);
+        frame->push_back(static_cast<uint8_t>(mycall[i] << 1));
     }
-    frame->push_back(0x00); // no SSID, not last yet
+    frame->push_back(beacon.path_count > 0 ? 0x00 : 0x01);
 
-    // Encode digipeater path from beacon settings (comma-separated)
-    const uint8_t* path_ptr = beacon.path;
-    size_t path_len = strnlen((const char*)path_ptr, kiss::BEACON_PATH_LEN);
-    size_t addr_idx = 0;
-    size_t path_pos = 0;
-
-    while (path_pos < path_len && addr_idx < 8) {
-        // Extract address up to comma or end
-        char addr_buf[10] = {};
-        size_t addr_len = 0;
-        while (path_pos + addr_len < path_len && path_ptr[path_pos + addr_len] != ',' && addr_len < 8) {
-            addr_buf[addr_len] = path_ptr[path_pos + addr_len];
-            addr_len++;
+    // Pre-encoded path addresses — pure byte copy, no string parsing.
+    for (uint8_t i = 0; i < beacon.path_count; i++) {
+        bool is_last = (i == beacon.path_count - 1);
+        for (int j = 0; j < 6; j++) {
+            frame->push_back(beacon.path[i][j]);
         }
-        addr_buf[addr_len] = '\0';
-
-        bool last_addr = (path_pos + addr_len >= path_len);
-
-        // Parse CALLSIGN-N format
-        char call_part[7] = {};
-        int ssid = 0;
-        const char* dash = std::strchr(addr_buf, '-');
-        if (dash && (dash - addr_buf) < 7) {
-            size_t call_len = dash - addr_buf;
-            std::strncpy(call_part, addr_buf, call_len);
-            call_part[call_len] = '\0';
-            ssid = std::atoi(dash + 1);
-        } else {
-            size_t copy_len = std::min(strlen(addr_buf), size_t(6));
-            for (size_t i = 0; i < copy_len; i++) call_part[i] = addr_buf[i];
-            call_part[copy_len] = '\0';
-        }
-
-        // Encode to 7-byte shifted format
-        size_t call_len = std::strlen(call_part);
-        for (size_t i = 0; i < 6; i++) {
-            char c = (i < call_len) ? call_part[i] : ' ';
-            frame->push_back(c << 1);
-        }
-        uint8_t ssid_byte = (ssid << 1) | (last_addr ? 0x01 : 0x00);
+        // C-bit: set on last address, clear otherwise.
+        uint8_t ssid_byte = beacon.path[i][6] | (is_last ? 0x01 : 0x00);
         frame->push_back(ssid_byte);
-
-        path_pos += addr_len + 1; // skip comma
-        addr_idx++;
     }
 
-    // Control field: UI frame = 0x03
+    // Control field: UI frame
     frame->push_back(0x03);
 
-    // PID: No layer 3 protocol = 0xF0
+    // PID: No layer 3 protocol
     frame->push_back(0xF0);
 
     // Information field: beacon text
-    size_t text_len = strnlen((const char*)beacon.text, kiss::BEACON_TEXT_LEN);
+    size_t text_len = ::strnlen(
+        reinterpret_cast<const char*>(beacon.text), kiss::BEACON_TEXT_LEN);
     for (size_t i = 0; i < text_len; i++) {
         if (!frame->push_back(beacon.text[i])) {
             ERROR("Beacon: OOM pushing text");
@@ -125,8 +89,7 @@ static void beaconTimerCallback(void const* arg)
     // Add FCS
     frame->add_fcs();
 
-    // Post to modulator queue
-    // Beacons use p-persist CSMA (standard), not p=0 like digipeated frames
+    // Post to modulator queue using p-persist CSMA (standard).
     if (osMessagePut(hdlcOutputQueueHandle,
         reinterpret_cast<uint32_t>(frame),
         0) != osOK) {
