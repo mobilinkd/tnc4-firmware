@@ -226,13 +226,15 @@ void Hardware::set_beacon(hdlc::IoFrame* frame)
     uint16_t interval = static_cast<uint16_t>((*it++) << 8);
     interval |= *it++;
 
-    // Destination string (NUL-terminated)
+    // Destination string (NUL-delimited in KISS frame)
     beacon.dest.fill(0);
-    for (size_t i = 0; i < beacon.dest.size(); i++) {
+    size_t di;
+    for (di = 0; di < beacon.dest.size(); di++) {
         char c = static_cast<char>(*it++);
-        beacon.dest[i] = c;
+        beacon.dest[di] = c;
         if (c == '\0') break;
     }
+    beacon.dest_len = di;
 
     // Read path string into local buffer
     char path_buf[32];
@@ -250,13 +252,14 @@ void Hardware::set_beacon(hdlc::IoFrame* frame)
         path_buf[pi] = '\0';
     }
 
-    // Read text string (NUL-terminated)
-    for (size_t i = 0; i < BEACON_TEXT_LEN; i++) {
+    // Read text string (NUL-delimited in KISS frame)
+    size_t ti;
+    for (ti = 0; ti < BEACON_TEXT_LEN; ti++) {
         char c = static_cast<char>(*it++);
-        beacon.text[i] = static_cast<uint8_t>(c);
+        beacon.text[ti] = static_cast<uint8_t>(c);
         if (c == '\0') break;
     }
-    beacon.text[BEACON_TEXT_LEN] = '\0';
+    beacon.text_len = ti;
 
     // Parse path into pre-encoded AX.25 addresses
     beacon.path_count = 0;
@@ -338,10 +341,8 @@ void Hardware::get_beacon(uint8_t slot)
     }
     path_str[path_len] = '\0';
 
-    size_t dest_len = 0;
-    while (dest_len < beacon.dest.size() && beacon.dest[dest_len]) dest_len++;
-    size_t text_len = 0;
-    while (text_len < BEACON_TEXT_LEN && beacon.text[text_len]) text_len++;
+    size_t dest_len = beacon.dest_len;
+    size_t text_len = beacon.text_len;
 
     // Reply: [ext_cmd(2)] [slot(1)] [interval_H(1)] [interval_L(1)]
     //        [dest(NUL)] [path(NUL)] [text(NUL)]

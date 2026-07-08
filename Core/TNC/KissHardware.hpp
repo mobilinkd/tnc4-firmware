@@ -242,11 +242,13 @@ const size_t BEACON_MAX_PATH_ADDRS = 4;
  */
 struct Beacon {
     call_t dest;                            ///< callsign.  Pad unused with NUL.
+    uint8_t dest_len;                       ///< Length of dest string (0-8).
     uint8_t path[BEACON_MAX_PATH_ADDRS][7]; ///< Pre-encoded AX.25 path addresses.
     uint8_t path_count;                     ///< Number of addresses in path (0-4).
-    uint8_t text[BEACON_TEXT_LEN + 1];      ///< NUL terminated string.
+    uint8_t text_len;                       ///< Actual number of bytes in text[].
+    uint8_t text[BEACON_TEXT_LEN];          ///< Beacon payload text.
     uint16_t seconds;                       ///< Number of seconds between beacons.
-}; // size = 8 + 28 + 1 + 129 + 2 = 168
+}; // size = 8 + 1 + 28 + 1 + 1 + 128 + 2 = 169
 
 const size_t NUMBER_OF_ALIASES = 8;     // 80 bytes
 const size_t NUMBER_OF_BEACONS = 4;     // 672 bytes

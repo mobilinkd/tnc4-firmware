@@ -1,3 +1,0 @@
-[submodule "lib/libaprsroute"]
-	path = lib/libaprsroute
-	url = https://github.com/mobilinkd/libaprsroute.git
