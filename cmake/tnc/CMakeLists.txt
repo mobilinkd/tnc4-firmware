@@ -14,7 +14,6 @@ target_compile_definitions(tnc PUBLIC
     $<$<CONFIG:Debug>:KISS_LOGGING>
     $<$<CONFIG:Release>:NDEBUG>
     BOOST_DISABLE_ASSERTS
-    APRS_ROUTER_MAX_ROUTER_ADDRESSES=8
 )
 
 target_include_directories(tnc PUBLIC
@@ -33,7 +32,6 @@ target_include_directories(tnc PUBLIC
     ../../Middlewares/ST/ARM/DSP/Inc
     ../../Core/TNC
     ../../blaze
-    ../../lib/libaprsroute
 )
 
 target_sources(tnc PRIVATE
