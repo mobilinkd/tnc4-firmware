@@ -159,9 +159,8 @@ void reply_ext(const std::array<uint8_t, N>& cmd, const uint8_t* data, uint16_t 
     auto buffer = static_cast<uint8_t*>(alloca(len + N));
     if (buffer == nullptr) return;
     std::copy(std::begin(cmd), std::end(cmd), buffer);
-    for (uint16_t i = 0; i != len and data[i] != 0; i++)
-        buffer[i + N] = data[i];
-    ioport->write(buffer, len + 2, 6, osWaitForever);
+    std::copy(data, data + len, buffer + N);
+    ioport->write(buffer, len + N, 6, osWaitForever);
 }
 
 template <size_t N>
@@ -365,6 +364,121 @@ void Hardware::get_beacon(uint8_t slot)
     std::memcpy(buf + pos, beacon.text, text_len);
     pos += text_len;
     buf[pos++] = 0;
+
+    ioport->write(buf, pos, 6, osWaitForever);
+}
+
+void Hardware::get_all_digipeater_configs()
+{
+    // Response: [ext_cmd(2)] [digipeater_enabled(1)] [routing_mode(1)] [dedupe_seconds(1)]
+    //          for each alias (up to NUMBER_OF_ALIASES):
+    //            [index(1)] [call(8)] [set(1)] [use(1)] [hops(1)]
+    // Total: 2 + 3 + 12*8 = 101 bytes max
+
+    constexpr size_t digi_header = 5;  // 2 cmd + 3 settings
+    constexpr size_t alias_size = 12;  // 1 index + 8 call + set + use + hops
+    constexpr size_t total = digi_header + alias_size * NUMBER_OF_ALIASES;
+
+    auto buf = static_cast<uint8_t*>(alloca(total));
+    if (buf == nullptr) return;
+
+    size_t pos = 0;
+    buf[pos++] = hardware::EXT_GET_ALL_DIGIPEATER_CONFIGS[0];
+    buf[pos++] = hardware::EXT_GET_ALL_DIGIPEATER_CONFIGS[1];
+    buf[pos++] = digipeater_enabled;
+    buf[pos++] = routing_mode;
+    buf[pos++] = dedupe_seconds;
+
+    for (size_t i = 0; i < NUMBER_OF_ALIASES; i++) {
+        auto& a = aliases[i];
+        buf[pos++] = static_cast<uint8_t>(i);
+        std::memcpy(buf + pos, a.call.data(), a.call.size());
+        pos += a.call.size();
+        buf[pos++] = a.set ? 1 : 0;
+        buf[pos++] = a.use ? 1 : 0;
+        buf[pos++] = a.hops;
+    }
+
+    ioport->write(buf, pos, 6, osWaitForever);
+}
+
+void Hardware::get_all_beacon_configs()
+{
+    // Response: [ext_cmd(2)]
+    //          for each beacon (up to NUMBER_OF_BEACONS):
+    //            [slot(1)] [interval_H(1)] [interval_L(1)]
+    //            [dest(NUL)] [path(NUL)] [text(NUL)]
+    //
+    // Two-pass: first compute the exact total size, then allocate and fill.
+    // This avoids over-allocating stack for worst-case text/path lengths.
+
+    // Pass 1: compute total size.
+    size_t total = 2;  // ext cmd bytes
+    for (size_t slot = 0; slot < NUMBER_OF_BEACONS; slot++) {
+        auto& beacon = beacons[slot];
+        total += 3;  // slot + interval
+        total += beacon.dest_len + 1;  // dest + NUL
+
+        // path length: reconstruct from pre-encoded addresses
+        size_t path_len = 0;
+        for (uint8_t i = 0; i < beacon.path_count; i++) {
+            if (i > 0) path_len++;  // comma
+            for (int j = 0; j < 6; j++) {
+                char c = static_cast<char>(beacon.path[i][j] >> 1);
+                if (c != ' ') path_len++;
+            }
+            uint8_t ssid = (beacon.path[i][6] >> 1) & 0x0F;
+            if (ssid > 0) {
+                path_len++;  // dash
+                if (ssid >= 10) path_len++;
+                path_len++;
+            }
+        }
+        total += path_len + 1;  // path + NUL
+        total += beacon.text_len + 1;  // text + NUL
+    }
+
+    auto buf = static_cast<uint8_t*>(alloca(total));
+    if (buf == nullptr) return;
+
+    // Pass 2: fill buffer.
+    size_t pos = 0;
+    buf[pos++] = hardware::EXT_GET_ALL_BEACON_CONFIGS[0];
+    buf[pos++] = hardware::EXT_GET_ALL_BEACON_CONFIGS[1];
+
+    for (size_t slot = 0; slot < NUMBER_OF_BEACONS; slot++) {
+        auto& beacon = beacons[slot];
+
+        buf[pos++] = static_cast<uint8_t>(slot);
+        buf[pos++] = static_cast<uint8_t>((beacon.seconds >> 8) & 0xFF);
+        buf[pos++] = static_cast<uint8_t>(beacon.seconds & 0xFF);
+
+        // dest (NUL-terminated)
+        std::memcpy(buf + pos, beacon.dest.data(), beacon.dest_len);
+        pos += beacon.dest_len;
+        buf[pos++] = 0;
+
+        // path (reconstruct from pre-encoded addresses, NUL-terminated)
+        for (uint8_t i = 0; i < beacon.path_count; i++) {
+            if (i > 0) buf[pos++] = ',';
+            for (int j = 0; j < 6; j++) {
+                char c = static_cast<char>(beacon.path[i][j] >> 1);
+                if (c != ' ') buf[pos++] = static_cast<uint8_t>(c);
+            }
+            uint8_t ssid = (beacon.path[i][6] >> 1) & 0x0F;
+            if (ssid > 0) {
+                buf[pos++] = '-';
+                if (ssid >= 10) buf[pos++] = static_cast<uint8_t>('0' + (ssid / 10));
+                buf[pos++] = static_cast<uint8_t>('0' + (ssid % 10));
+            }
+        }
+        buf[pos++] = 0;
+
+        // text (NUL-terminated)
+        std::memcpy(buf + pos, beacon.text, beacon.text_len);
+        pos += beacon.text_len;
+        buf[pos++] = 0;
+    }
 
     ioport->write(buf, pos, 6, osWaitForever);
 }
@@ -745,6 +859,19 @@ void Hardware::handle_request(hdlc::IoFrame* frame)
         reply8(hardware::GET_MAX_INPUT_TWIST, 9);   // Constants for this FW
         ext_reply(hardware::EXT_GET_MODEM_TYPE, modem_type);
         ext_reply(hardware::EXT_GET_MODEM_TYPES, supported_modem_types);
+
+        // Digipeater and beacon feature discovery + current config.
+        ext_reply(hardware::EXT_GET_ALIASES, (uint8_t)NUMBER_OF_ALIASES);
+        ext_reply(hardware::EXT_GET_BEACON_SLOTS, (uint8_t)NUMBER_OF_BEACONS);
+        {
+            uint8_t digi_reply[3] = {
+                digipeater_enabled,
+                routing_mode,
+                dedupe_seconds
+            };
+            reply_ext(hardware::EXT_GET_DIGIPEATER, digi_reply, 3);
+        }
+
         if (*error_message) {
             reply(hardware::GET_ERROR_MSG, (uint8_t*) error_message, sizeof(error_message));
         }
@@ -849,6 +976,16 @@ void Hardware::handle_ext_request(hdlc::IoFrame* frame) {
         TNC_DEBUG("EXT_SET_BEACON");
         set_beacon(frame);
         ext_reply(hardware::EXT_SET_BEACON, hardware::EXT_OK);
+        break;
+    }
+    case hardware::EXT_GET_ALL_DIGIPEATER_CONFIGS[1]: {
+        TNC_DEBUG("EXT_GET_ALL_DIGIPEATER_CONFIGS");
+        get_all_digipeater_configs();
+        break;
+    }
+    case hardware::EXT_GET_ALL_BEACON_CONFIGS[1]: {
+        TNC_DEBUG("EXT_GET_ALL_BEACON_CONFIGS");
+        get_all_beacon_configs();
         break;
     }
     default:

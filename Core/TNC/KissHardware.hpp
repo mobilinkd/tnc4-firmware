@@ -177,6 +177,12 @@ constexpr std::array<uint8_t, 2> EXT_GET_BEACON_SLOTS = {0xC1, 0x8C};   ///< Num
 constexpr std::array<uint8_t, 2> EXT_GET_BEACON = {0xC1, 0x8D};         ///< Beacon number (uint8_t), uint16_t interval in seconds, 3 NUL terminated strings (callsign, path, text)
 constexpr std::array<uint8_t, 2> EXT_SET_BEACON = {0xC1, 0x8E};         ///< Beacon number (uint8_t), uint16_t interval in seconds, 3 NUL terminated strings (callsign, path, text)
 
+// Bulk query commands: return all configs in a single response.
+// GET_ALL_DIGIPEATER_CONFIGS: digipeater settings (3 bytes) + all aliases (12 bytes each).
+// GET_ALL_BEACON_CONFIGS: all beacons, each as [slot(1)][interval_H(1)][interval_L(1)][dest(NUL)][path(NUL)][text(NUL)].
+constexpr std::array<uint8_t, 2> EXT_GET_ALL_DIGIPEATER_CONFIGS = {0xC1, 0x90};  ///< Return digipeater settings + all aliases
+constexpr std::array<uint8_t, 2> EXT_GET_ALL_BEACON_CONFIGS = {0xC1, 0x91};    ///< Return all beacon configurations
+
 /*
  * Modem type values 0x00 - 0x7F are single-byte types.  Modem type values
  * starting at 0xC0 are multi-byte values, and should follow the model used
@@ -420,6 +426,9 @@ struct Hardware
 
     void get_beacon(uint8_t slot);
     void set_beacon(hdlc::IoFrame* frame);
+
+    void get_all_digipeater_configs();
+    void get_all_beacon_configs();
 
     bool rx_rev_polarity() const
     {
