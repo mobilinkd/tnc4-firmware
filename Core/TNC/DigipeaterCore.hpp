@@ -63,6 +63,20 @@ struct DigipeaterCore : Policy
     std::array<DedupeEntry, MAX_DEDUPE_ENTRIES> dedupe_ring_;
     size_t dedupe_head_ = 0;
 
+    // Routing match state, populated by can_repeat() and consumed by
+    // rewrite_frame_impl().  Tracks how the match was found so that the
+    // rewrite applies the correct rule (normal alias decrement vs preempt
+    // truncate-and-mark).
+    enum class MatchType : uint8_t {
+        None = 0,           // No match yet.
+        Alias = 1,          // Normal first-unmatched alias match.
+        PreemptFront = 2,   // Mycall found in path (preempt_front fallback).
+    };
+    MatchType match_type_ = MatchType::None;
+    size_t match_addr_offset_ = 0;     // Linear-buffer offset of the matched addr.
+    bool match_is_nN_ = false;         // True if matched alias is an n-N prefix.
+    const kiss::Alias* match_alias_ = nullptr;  // Set only for Alias matches.
+
     explicit DigipeaterCore(const Config& cfg)
     : cfg_(cfg)
     {
@@ -279,10 +293,19 @@ struct DigipeaterCore : Policy
      * 3. Must not be addressed to us directly (prevent loops)
      * 4. Must not be in dedupe history
      * 5. Must match an active alias via AX.25 address field comparison
+     *    (first-unmatched).  When ROUTING_PREEMPT_FRONT is set, falls back
+     *    to a path scan for our own callsign (mycall) if the normal alias
+     *    scan fails.  In both cases, dedupe and APRS-frame checks apply.
      */
     template <typename InputIt>
     const kiss::Alias* can_repeat(InputIt first, InputIt last)
     {
+        // Reset match state on every call.  Single-threaded digipeater task.
+        match_type_ = MatchType::None;
+        match_addr_offset_ = 0;
+        match_is_nN_ = false;
+        match_alias_ = nullptr;
+
         if (!cfg_.digipeater_enabled) return nullptr;
 
         // Copy input to linear buffer
@@ -301,19 +324,26 @@ struct DigipeaterCore : Policy
         if (match_shifted_callsign(linear_buf_.data() + 7, cfg_.mycall)) return nullptr;
 
         // Don't digipeat if our callsign already appears in the path.
-        // If present with H-bit: already processed. If present without H-bit
-        // but not at the first unmatched position: would create duplicate.
+        //   - If H-bit set: already processed, reject.
+        //   - If no H-bit but not at the first unmatched position: would
+        //     create a duplicate, reject -- UNLESS ROUTING_PREEMPT_FRONT is
+        //     set, in which case preempt_front allows the match and the
+        //     rewrite will truncate the path at our position.
+        bool preempt_enabled =
+            (cfg_.routing_mode & kiss::hardware::ROUTING_PREEMPT_FRONT) != 0;
         size_t path_end = 14;
         while (path_end + 7 <= linear_len_) {
-            bool repeated = (linear_buf_[path_end + 6] & 0x80) != 0;
             if (match_shifted_callsign(linear_buf_.data() + path_end, cfg_.mycall)) {
+                bool repeated = (linear_buf_[path_end + 6] & 0x80) != 0;
                 if (repeated) return nullptr;
-                size_t first_unmatched = 14;
-                while (first_unmatched <= path_end) {
-                    if (!(linear_buf_[first_unmatched + 6] & 0x80)) break;
-                    first_unmatched += 7;
+                if (!preempt_enabled) {
+                    size_t first_unmatched = 14;
+                    while (first_unmatched <= path_end) {
+                        if (!(linear_buf_[first_unmatched + 6] & 0x80)) break;
+                        first_unmatched += 7;
+                    }
+                    if (first_unmatched != path_end) return nullptr;
                 }
-                if (first_unmatched != path_end) return nullptr;
             }
             if (linear_buf_[path_end + 6] & 0x01) break;
             path_end += 7;
@@ -340,17 +370,55 @@ struct DigipeaterCore : Policy
                     bool is_nN = is_nN_alias(a.call);
                     if (is_nN) {
                         if (ssid > 0 && ssid <= a.hops) {
+                            match_type_ = MatchType::Alias;
+                            match_addr_offset_ = pos;
+                            match_is_nN_ = true;
+                            match_alias_ = &a;
                             record_frame(crc);
-                            return &a;
+                            return match_alias_;
                         }
                     } else {
+                        match_type_ = MatchType::Alias;
+                        match_addr_offset_ = pos;
+                        match_is_nN_ = false;
+                        match_alias_ = &a;
                         record_frame(crc);
-                        return &a;
+                        return match_alias_;
                     }
                 }
             }
             if (linear_buf_[pos + 6] & 0x01) break;
             pos += 7;
+        }
+
+        // Preempt-front fallback: if no alias matched, scan the entire
+        // path for our own callsign (mycall).  This implements the standard
+        // APRS "I see myself in the path, I'll take it from here" rule:
+        // route the frame, mark mycall with H-bit, and drop everything
+        // after.  Only fires when ROUTING_PREEMPT_FRONT is set in
+        // routing_mode.  The "mycall with H-bit" guard above already
+        // prevents re-processing an already-handled frame.
+        if ((cfg_.routing_mode & kiss::hardware::ROUTING_PREEMPT_FRONT) != 0) {
+            size_t scan_pos = 14;
+            while (scan_pos + 7 <= linear_len_) {
+                if (match_shifted_callsign(linear_buf_.data() + scan_pos, cfg_.mycall)) {
+                    // H-bit guard above already filtered these out, but
+                    // skip defensively.
+                    bool repeated = (linear_buf_[scan_pos + 6] & 0x80) != 0;
+                    if (!repeated) {
+                        match_type_ = MatchType::PreemptFront;
+                        match_addr_offset_ = scan_pos;
+                        match_is_nN_ = false;
+                        match_alias_ = nullptr;
+                        record_frame(crc);
+                        // Sentinel: returns non-null with match_alias_ = nullptr.
+                        // Callers should always check match_type_ first.
+                        return reinterpret_cast<const kiss::Alias*>(this);
+                    }
+                }
+                if (linear_buf_[scan_pos + 6] & 0x01) break;
+                scan_pos += 7;
+            }
         }
 
         return nullptr;
@@ -374,6 +442,12 @@ struct DigipeaterCore : Policy
      * rewritten frame to `out` and sets `out_len`.
      *
      * Returns true if routing was applied, false if declined.
+     *
+     * The match location is taken from the state populated by can_repeat()
+     * (match_type_, match_addr_offset_, match_is_nN_, match_alias_).  When
+     * match_type_ is PreemptFront the path is truncated at our callsign
+     * position; otherwise the standard alias decrement / substitution logic
+     * runs.
      */
     bool rewrite_frame_impl(uint8_t* out, size_t& out_len, size_t out_capacity)
     {
@@ -383,50 +457,60 @@ struct DigipeaterCore : Policy
         bool substitute = (routing_mode & kiss::hardware::ROUTING_SUBSTITUTE) != 0;
         bool skip_complete = (routing_mode & kiss::hardware::ROUTING_SKIP_COMPLETE) != 0;
 
+        // Determine match state.  Prefer the state captured by can_repeat();
+        // if absent (e.g. caller invoked rewrite_frame() without first
+        // calling can_repeat()), fall back to a scan.  In normal digipeater
+        // flow can_repeat() always runs first.
+        bool is_preempt = (match_type_ == MatchType::PreemptFront);
+        bool is_alias_match = (match_type_ == MatchType::Alias);
+        size_t match_addr_offset = match_addr_offset_;
+        bool match_is_nN = match_is_nN_;
+
+        if (match_type_ == MatchType::None) {
+            // Fallback scan for callers that bypass can_repeat().  This
+            // matches the existing behavior so existing tests keep working
+            // when rewrite_frame() is called standalone.
+            match_addr_offset = 0;
+            match_is_nN = false;
+            bool found = false;
+            size_t pos = 14;
+            while (pos + 7 <= linear_len_) {
+                bool repeated = (linear_buf_[pos + 6] & 0x80) != 0;
+                if (!repeated) {
+                    uint8_t ssid = (linear_buf_[pos + 6] >> 1) & 0x0F;
+                    for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
+                        auto& a = cfg_.aliases[i];
+                        if (!a.set || !a.use || a.hops == 0) continue;
+                        if (!match_shifted_callsign(linear_buf_.data() + pos, a.call))
+                            continue;
+                        bool is_nN = is_nN_alias(a.call);
+                        if (is_nN) {
+                            if (ssid > 0 && ssid <= a.hops) {
+                                match_addr_offset = pos;
+                                match_is_nN = true;
+                                found = true;
+                                break;
+                            }
+                        } else {
+                            match_addr_offset = pos;
+                            match_is_nN = false;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
+                }
+                if (linear_buf_[pos + 6] & 0x01) break;
+                pos += 7;
+            }
+            if (!found) return false;
+            is_alias_match = true;
+            // is_preempt stays false in fallback path.
+        }
+
         // Find the info field offset (control + PID + payload start)
         size_t info_offset = find_info_offset();
         if (info_offset >= linear_len_) return false;
-
-        // Walk digipeater path to find first unmatched alias match.
-        size_t match_addr_offset = 0;
-        bool found = false;
-        bool match_is_nN = false;
-
-        size_t pos = 14;
-        while (pos + 7 <= linear_len_) {
-            bool repeated = (linear_buf_[pos + 6] & 0x80) != 0;
-            if (!repeated) {
-                uint8_t ssid = (linear_buf_[pos + 6] >> 1) & 0x0F;
-
-                for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
-                    auto& a = cfg_.aliases[i];
-                    if (!a.set || !a.use || a.hops == 0) continue;
-
-                    if (!match_shifted_callsign(linear_buf_.data() + pos, a.call))
-                        continue;
-
-                    bool is_nN = is_nN_alias(a.call);
-                    if (is_nN) {
-                        if (ssid > 0 && ssid <= a.hops) {
-                            match_addr_offset = pos;
-                            found = true;
-                            match_is_nN = true;
-                            break;
-                        }
-                    } else {
-                        match_addr_offset = pos;
-                        found = true;
-                        match_is_nN = false;
-                        break;
-                    }
-                }
-                if (found) break;
-            }
-            if (linear_buf_[pos + 6] & 0x01) break;
-            pos += 7;
-        }
-
-        if (!found) return false;
 
         // Build the new frame in the output buffer.
         // Layout: dest(7) + src(7) + [new digi path] + ctrl + pid + info
@@ -450,12 +534,16 @@ struct DigipeaterCore : Policy
             orig_pos += ADDR_SIZE;
         }
 
+        // match_idx is the index of the matched address in the path_addrs
+        // array.
         size_t match_idx = (match_addr_offset - 14) / ADDR_SIZE;
 
         // Apply skip_complete: filter out completed addresses before the match.
         std::array<std::array<uint8_t, ADDR_SIZE>, MAX_PATH_ADDRS + 1> new_path{};
         size_t new_path_count = 0;
 
+        // All addresses are preserved.  preempt_front only sets H-bit on
+        // our entry; it does NOT truncate the path (that's preempt_truncate).
         for (size_t i = 0; i < path_count; i++) {
             if (skip_complete && i < match_idx) {
                 uint8_t ssid_byte = path_addrs[i][6];
@@ -483,7 +571,14 @@ struct DigipeaterCore : Policy
         uint8_t& matched_ssid_byte = new_path[new_match_idx][6];
         uint8_t current_ssid = (matched_ssid_byte >> 1) & 0x0F;
 
-        if (match_is_nN) {
+        if (is_preempt) {
+            // Preempt_front: set H-bit on our callsign.  Do not decrement
+            // SSID and do not insert another callsign entry -- the path
+            // already contains us, we just mark ourselves and stop here.
+            matched_ssid_byte |= 0x80;
+            // Preserve C-bit if it was on our entry.
+            // (The C-bit clear-pass below also handles it.)
+        } else if (match_is_nN) {
             // n-N routing: decrement hop count
             uint8_t new_ssid = current_ssid - 1;
             matched_ssid_byte = (matched_ssid_byte & 0x01) | (new_ssid << 1);
@@ -493,24 +588,28 @@ struct DigipeaterCore : Policy
         }
 
         // 4. Insert or substitute our callsign with H-bit set.
-        // n-N routing always inserts. Explicit routing inserts unless
-        // the matched address is our own callsign (would be a duplicate).
-        bool do_substitute = substitute && (match_is_nN && current_ssid == 1);
-        bool matched_is_mycall = match_shifted_callsign(
-            new_path[new_match_idx].data(), cfg_.mycall);
+        // Skip this step entirely for preempt_front: we already marked
+        // ourselves in place; inserting another DIGI* would duplicate.
+        if (!is_preempt) {
+            // n-N routing always inserts. Explicit routing inserts unless
+            // the matched address is our own callsign (would be a duplicate).
+            bool do_substitute = substitute && (match_is_nN && current_ssid == 1);
+            bool matched_is_mycall = match_shifted_callsign(
+                new_path[new_match_idx].data(), cfg_.mycall);
 
-        if (match_is_nN || !matched_is_mycall) {
-            if (do_substitute) {
-                encode_mycall_address(new_path[new_match_idx].data(), 0, match_is_nN);
-                uint8_t c_bit = path_addrs[match_idx][6] & 0x01;
-                new_path[new_match_idx][6] |= c_bit;
-            } else {
-                if (new_path_count < MAX_PATH_ADDRS) {
-                    for (size_t i = new_path_count; i > new_match_idx; i--) {
-                        new_path[i] = new_path[i - 1];
-                    }
+            if (match_is_nN || !matched_is_mycall) {
+                if (do_substitute) {
                     encode_mycall_address(new_path[new_match_idx].data(), 0, match_is_nN);
-                    new_path_count++;
+                    uint8_t c_bit = path_addrs[match_idx][6] & 0x01;
+                    new_path[new_match_idx][6] |= c_bit;
+                } else {
+                    if (new_path_count < MAX_PATH_ADDRS) {
+                        for (size_t i = new_path_count; i > new_match_idx; i--) {
+                            new_path[i] = new_path[i - 1];
+                        }
+                        encode_mycall_address(new_path[new_match_idx].data(), 0, match_is_nN);
+                        new_path_count++;
+                    }
                 }
             }
         }
@@ -533,6 +632,10 @@ struct DigipeaterCore : Policy
         for (size_t i = info_offset; i < linear_len_ && out_len < out_capacity; i++) {
             out[out_len++] = linear_buf_[i];
         }
+
+        // Suppress unused warning when alias match is found without
+        // preempt_front ever firing.
+        (void)is_alias_match;
 
         return out_len > 14;
     }

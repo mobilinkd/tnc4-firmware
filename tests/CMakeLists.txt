@@ -28,6 +28,16 @@ add_executable(tnc_digipeat
 target_include_directories(tnc_digipeat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set_property(TARGET tnc_digipeat PROPERTY CXX_STANDARD 17)
 
+# libaprsroute routes.json explicit-routing conformance tests
+# (preempt_front, substitute_explicit, traceless, reject/trap limits,
+# route_self, strict, and combined-option cases).
+add_executable(test_digipeater_explicit
+    test_digipeater_explicit.cpp
+)
+
+target_include_directories(test_digipeater_explicit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
 enable_testing()
 add_test(NAME digipeater_smoke COMMAND test_digipeater_smoke)
 add_test(NAME digipeater_nn COMMAND test_digipeater_nn)
+add_test(NAME digipeater_explicit COMMAND test_digipeater_explicit)
