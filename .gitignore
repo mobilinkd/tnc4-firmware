@@ -3,6 +3,8 @@
 Debug/
 Release/
 build/
+build_host/
 .claude/
 .gitnexus/
+.hermes/
 *.swp

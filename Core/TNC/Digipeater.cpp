@@ -13,12 +13,58 @@ extern osMessageQId hdlcOutputQueueHandle;
 
 /*
  * APRS Digipeater implementation.
+ *
+ * The routing core is platform-independent (DigipeaterCore.hpp).
+ * This file provides the IoFrame glue and FreeRTOS task loop.
  */
+
+namespace mobilinkd { namespace tnc {
+
+// ============================================================================
+// IoFrame glue
+// ============================================================================
+
+const kiss::Alias* digi_can_repeat(FirmwareDigipeater& digi, hdlc::IoFrame* frame)
+{
+    return digi.can_repeat(frame->begin(), frame->end());
+}
+
+hdlc::IoFrame* digi_rewrite_frame(FirmwareDigipeater& digi, hdlc::IoFrame* frame)
+{
+    std::array<uint8_t, FirmwareDigipeater::LINEAR_BUF_SIZE> out_buf{};
+    size_t out_len = 0;
+
+    if (!digi.rewrite_frame(frame->begin(), frame->end(),
+                            out_buf.data(), out_len, out_buf.size()))
+        return frame;
+
+    auto new_frame = hdlc::acquire();
+    if (new_frame == nullptr) {
+        ERROR("Digipeater: OOM acquiring new frame");
+        return frame;
+    }
+
+    for (size_t i = 0; i < out_len; i++) {
+        if (!new_frame->push_back(out_buf[i])) {
+            ERROR("Digipeater: OOM pushing to new frame");
+            hdlc::release(new_frame);
+            return frame;
+        }
+    }
+
+    new_frame->add_fcs();
+    return new_frame;
+}
+
+}} // mobilinkd::tnc
+
+// ============================================================================
+// Beacon timer
+// ============================================================================
 
 // Beacon timer callback context
 struct BeaconContext {
     uint8_t slot;                    // Beacon slot index (0-3)
-    mobilinkd::tnc::Digipeater* digi;
 };
 
 static BeaconContext beacon_contexts[4];
@@ -102,7 +148,6 @@ void start_beacon_timers()
 
     for (size_t i = 0; i < NUMBER_OF_BEACONS; i++) {
         beacon_contexts[i].slot = i;
-        beacon_contexts[i].digi = nullptr;
 
         osTimerDef(beaconTimer, beaconTimerCallback);
         beaconTimerHandles[i] = osTimerCreate(osTimer(beaconTimer), osTimerPeriodic, &beacon_contexts[i]);
@@ -113,18 +158,22 @@ void start_beacon_timers()
     }
 }
 
+// ============================================================================
+// Digipeater task
+// ============================================================================
+
 void startDigipeaterTask(void* arg)
 {
-  using mobilinkd::tnc::Digipeater;
+  using mobilinkd::tnc::FirmwareDigipeater;
   using mobilinkd::tnc::hdlc::IoFrame;
   using mobilinkd::tnc::hdlc::TxResult;
   using mobilinkd::tnc::hdlc::add_ref;
   using mobilinkd::tnc::hdlc::release;
 
   // Create static Digipeater instance using settings from EEPROM
-  static Digipeater digi_instance(mobilinkd::tnc::kiss::settings().aliases, mobilinkd::tnc::kiss::settings().beacons);
+  static FirmwareDigipeater digi_instance(mobilinkd::tnc::kiss::settings());
 
-  auto digi = arg ? static_cast<Digipeater*>(arg) : &digi_instance;
+  auto digi = arg ? static_cast<FirmwareDigipeater*>(arg) : &digi_instance;
 
   // Start beacon timers
   start_beacon_timers();
@@ -153,12 +202,12 @@ void startDigipeaterTask(void* arg)
 
     digi->clean_history();
 
-    if (!digi->can_repeat(frame)) {
+    if (!mobilinkd::tnc::digi_can_repeat(*digi, frame)) {
         release(frame);
         continue;
     }
 
-    auto digi_frame = digi->rewrite_frame(frame);
+    auto digi_frame = mobilinkd::tnc::digi_rewrite_frame(*digi, frame);
     if (digi_frame == frame) {
         // rewrite_frame returned the original -- router declined it
         release(frame);
@@ -183,7 +232,3 @@ void beacon(void* arg)
   // Legacy entry point. Beacon scheduling is now handled by FreeRTOS timers
   // started in startDigipeaterTask().
 }
-
-namespace mobilinkd { namespace tnc {
-
-}}  // mobilinkd::tnc
