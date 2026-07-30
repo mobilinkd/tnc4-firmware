@@ -146,29 +146,43 @@ inline std::vector<uint8_t> parse_ax25_packet(const std::string& packet)
 }
 
 // Convert an AX.25 byte buffer back to an ASCII packet string for debug output.
+//
+// AX.25 wire order is dest(7) + src(7) + digi*(7) + ctrl + pid + info, but the
+// conventional APRS text form is SRC>DEST,DIGI1,DIGI2*:info -- so source and
+// destination are emitted in reverse of their wire positions.  SSID is decoded
+// on every address (source, destination, and digipeaters).
 inline std::string ax25_packet_to_string(const uint8_t* buf, size_t len)
 {
     if (len < 14) return "(too short)";
+
+    // Decode one 7-byte address field (6 shifted chars + SSID byte) to "CALL"
+    // or "CALL-N".  Trailing spaces are dropped; SSID 0 is omitted.
+    auto decode_call = [buf](size_t addr_offset) {
+        std::string call;
+        for (size_t i = 0; i < 6; i++) {
+            char c = static_cast<char>(buf[addr_offset + i] >> 1);
+            if (c != ' ') call += c;
+        }
+        uint8_t ssid = (buf[addr_offset + 6] >> 1) & 0x0F;
+        if (ssid > 0) call += "-" + std::to_string(ssid);
+        return call;
+    };
+
     std::string result;
-    // Decode destination
-    for (int i = 0; i < 6; i++) {
-        char c = buf[i] >> 1;
-        if (c != ' ') result += c;
-    }
+    // Source lives at bytes 7-13 on the wire but prints first in APRS text.
+    result += decode_call(7);
     result += '>';
-    // Decode source
-    for (int i = 7; i < 13; i++) {
-        char c = buf[i] >> 1;
-        if (c != ' ') result += c;
-    }
-    // Decode path
+    // Destination lives at bytes 0-6 on the wire but prints after the '>'.
+    result += decode_call(0);
+
+    // Digipeater path starts at byte 14; each address is 7 bytes and the last
+    // one has the C-bit (bit 0) set.  Every digipeater is comma-separated from
+    // what precedes it, including the first (which follows the destination).
     size_t pos = 14;
-    bool first = true;
     while (pos + 7 <= len) {
-        if (!first) result += ',';
-        first = false;
-        for (int i = pos; i < pos + 6; i++) {
-            char c = buf[i] >> 1;
+        result += ',';
+        for (size_t i = 0; i < 6; i++) {
+            char c = static_cast<char>(buf[pos + i] >> 1);
             if (c != ' ') result += c;
         }
         uint8_t ssid_byte = buf[pos + 6];
@@ -184,7 +198,7 @@ inline std::string ax25_packet_to_string(const uint8_t* buf, size_t len)
     // Decode info (skip control + PID)
     pos += 2; // skip control and PID
     for (size_t i = pos; i < len; i++) {
-        char c = buf[i];
+        char c = static_cast<char>(buf[i]);
         if (c >= 0x20 && c < 0x7F) result += c;
     }
     return result;
@@ -202,8 +216,8 @@ inline Alias make_alias(const std::string& call, uint8_t hops, bool set = true, 
     a.set = set;
     a.use = use;
     a.hops = hops;
-    for (size_t i = 0; i < call.size() && i < CALLSIGN_LEN; i++)
-        a.call[i] = call[i];
+    for (size_t i = 0; i < call.size() && i < 6; i++)
+        a.call.callsign[i] = call[i];
     return a;
 }
 
@@ -215,8 +229,15 @@ inline TestConfig make_test_config(const std::string& mycall,
     cfg.digipeater_enabled = 1;
     cfg.routing_mode = routing_mode;
     cfg.dedupe_seconds = 30;
-    for (size_t i = 0; i < mycall.size() && i < CALLSIGN_LEN; i++)
-        cfg.mycall[i] = mycall[i];
+    // Parse "CALL" or "CALL-N" into callsign + ssid.
+    std::string base = mycall;
+    auto dash = mycall.find('-');
+    if (dash != std::string::npos) {
+        base = mycall.substr(0, dash);
+        cfg.mycall.ssid = static_cast<uint8_t>(std::stoi(mycall.substr(dash + 1)));
+    }
+    for (size_t i = 0; i < base.size() && i < 6; i++)
+        cfg.mycall.callsign[i] = base[i];
     return cfg;
 }
 
