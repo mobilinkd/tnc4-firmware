@@ -352,6 +352,25 @@ struct DigipeaterCore : Policy
         uint32_t crc = compute_dedupe_key(linear_buf_.data(), linear_len_);
         if (is_duplicate(crc)) return nullptr;
 
+        // Compute first_unused: byte offset of the first address after the
+        // last H-bit-set (used) address in the path.  If no addresses are
+        // used, it's 14 (start of the digipeater path).
+        size_t first_unused = 14;
+        {
+            size_t p = 14;
+            size_t last_h = 14;  // tracks last H-bit position (start of addr)
+            bool any_h = false;
+            while (p + 7 <= linear_len_) {
+                if (linear_buf_[p + 6] & 0x80) {
+                    last_h = p;
+                    any_h = true;
+                }
+                if (linear_buf_[p + 6] & 0x01) break;  // C-bit = last addr
+                p += 7;
+            }
+            if (any_h) first_unused = last_h + 7;
+        }
+
         // Scan for first unmatched address matching an alias.
         size_t pos = 14;
         while (pos + 7 <= linear_len_) {
@@ -369,6 +388,16 @@ struct DigipeaterCore : Policy
                     bool is_nN = is_nN_alias(a.call);
                     if (is_nN) {
                         if (ssid > 0 && ssid <= a.hops) {
+                            // Decision 1: blocking rule.  If the match is
+                            // past the first unused position and the address
+                            // at first_unused is non-empty and is NOT our
+                            // own callsign, drop the packet.
+                            if (pos > first_unused &&
+                                !match_shifted_callsign(
+                                    linear_buf_.data() + first_unused,
+                                    cfg_.mycall, true)) {
+                                return nullptr;
+                            }
                             match_type_ = MatchType::Alias;
                             match_addr_offset_ = pos;
                             match_is_nN_ = true;
@@ -377,6 +406,13 @@ struct DigipeaterCore : Policy
                             return match_alias_;
                         }
                     } else {
+                        // Decision 1: blocking rule (explicit alias match).
+                        if (pos > first_unused &&
+                            !match_shifted_callsign(
+                                linear_buf_.data() + first_unused,
+                                cfg_.mycall, true)) {
+                            return nullptr;
+                        }
                         match_type_ = MatchType::Alias;
                         match_addr_offset_ = pos;
                         match_is_nN_ = false;
@@ -443,6 +479,24 @@ struct DigipeaterCore : Policy
             match_addr_offset = 0;
             match_is_nN = false;
             bool found = false;
+
+            // Compute first_unused for blocking rule (same as can_repeat).
+            size_t first_unused_fb = 14;
+            {
+                size_t p = 14;
+                size_t last_h = 14;
+                bool any_h = false;
+                while (p + 7 <= linear_len_) {
+                    if (linear_buf_[p + 6] & 0x80) {
+                        last_h = p;
+                        any_h = true;
+                    }
+                    if (linear_buf_[p + 6] & 0x01) break;
+                    p += 7;
+                }
+                if (any_h) first_unused_fb = last_h + 7;
+            }
+
             size_t pos = 14;
             while (pos + 7 <= linear_len_) {
                 bool repeated = (linear_buf_[pos + 6] & 0x80) != 0;
@@ -456,12 +510,26 @@ struct DigipeaterCore : Policy
                         bool is_nN = is_nN_alias(a.call);
                         if (is_nN) {
                             if (ssid > 0 && ssid <= a.hops) {
+                                // Decision 1: blocking rule.
+                                if (pos > first_unused_fb &&
+                                    !match_shifted_callsign(
+                                        linear_buf_.data() + first_unused_fb,
+                                        cfg_.mycall, true)) {
+                                    return false;
+                                }
                                 match_addr_offset = pos;
                                 match_is_nN = true;
                                 found = true;
                                 break;
                             }
                         } else {
+                            // Decision 1: blocking rule (explicit).
+                            if (pos > first_unused_fb &&
+                                !match_shifted_callsign(
+                                    linear_buf_.data() + first_unused_fb,
+                                    cfg_.mycall, true)) {
+                                return false;
+                            }
                             match_addr_offset = pos;
                             match_is_nN = false;
                             found = true;

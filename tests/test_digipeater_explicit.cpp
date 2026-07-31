@@ -178,13 +178,16 @@ TEST(ssid_digi_wx9o_1_non_aprs_dest_rejected) {
 
 TEST(ssid_digi_wx9o_1_path_wx9o_5_not_loop) {
     // WX9O-5 appears in path (different SSID from our WX9O-1).
-    // Not a loop -- should route normally.
+    // WX9O-5 is a non-empty unused address before the WIDE1-1 match.
+    // Per Decision 1 (blocking rule), this packet is dropped -- the
+    // reference also blocks here because WX9O-5 is not our callsign
+    // and sits between the used prefix (empty) and the alias match.
     auto cfg = make_test_config("WX9O-1", 0);
     cfg.aliases[0] = make_alias("WIDE1", 1);
     TestDigipeater digi(cfg);
     auto buf = parse_ax25_packet("N0CALL>APRS,WX9O-5,WIDE1-1:hello");
     auto result = digi.can_repeat(buf.data(), buf.size());
-    EXPECT_TRUE(result != nullptr);
+    EXPECT_TRUE(result == nullptr);
     passed++;
 }
 

@@ -56,12 +56,34 @@ INSERT_BEFORE describes the position, not the address at that position.
 
 ## Scan rules (left to right, per location)
 
+The scan has two phases:
+
+Phase 1 -- find the match:
+  Walk the entire path left to right. Return the first address that
+  matches one of our aliases (n-N or explicit). Non-matching addresses
+  do NOT block during this phase. This is a full-path search, not a
+  first-unrepeated-only search.
+
+Phase 2 -- check the blocking rule:
+  Find the last used (H-bit set) address in the path. The "unused
+  address index" is the position immediately after it (or 0 if no
+  addresses are used). If the matched address is at a position AFTER
+  the unused address index, AND the address at the unused index is
+  non-empty (not a placeholder), the packet is DROPPED. If the match
+  is AT the unused address index, route. If the address at the unused
+  index is empty (placeholder), allow routing past it.
+
+  Our own callsign in the path at the first unused position is not a
+  blocker -- it is treated as a pass-through (the mycall-in-path check
+  at lines 335-349 already handles this).
+
+Per-location update rules (applied during rewrite, not during scan):
+
     H-bit already set                        -> no update, continue
     matches our n-N alias, SSID == 0         -> MARK_USED, continue
     matches our n-N alias, SSID == 1         -> REPLACE_WITH_US, stop
     matches our n-N alias, SSID > 1          -> DECREMENT_SSID | INSERT_BEFORE, stop
     matches our explicit alias               -> MARK_USED | INSERT_BEFORE, stop
-    unused, matches nothing                  -> DROP (can_repeat returns nullptr)
 
 INSERT_BEFORE is suppressed if the path is already at 8 addresses (no room
 to grow).  The matched address is still marked/decremented/replaced.
