@@ -21,47 +21,17 @@ APRS spec and Direwolf is the reference.
 - n-N routing: WIDE/TRACE/RELAY/ECHO/GATE/TEMP prefix aliases, SSID hop
   decrement, H-bit marking.  71/110 test vectors pass; 46 documented diffs
   from libaprsroute (mostly insertion-policy differences, see ADR-0006).
-- ROUTING_SUBSTITUTE (0x40): replace exhausted n-N alias (ssid==1) with our
-  callsign.  Implemented and tested.
+- Substitution of exhausted n-N aliases: hardcoded (always on).  See
+  KissTypes.hpp.  Not configurable.
 - ROUTING_SKIP_COMPLETE (0x80): drop completed (ssid==0, H-bit set) addresses
   before the match.  Implemented and tested.
 
 ### What is broken
 
-**Bug 1: ROUTING_PREEMPT_FRONT (0x01) implements the wrong behavior.**
+**Bug 1: ROUTING_PREEMPT_FRONT (0x01) -- REMOVED (5d9999f).**
 
-Our code (DigipeaterCore.hpp:579-583) sets the H-bit on our callsign in place
-and does nothing else.  That is preempt_mark semantics, not preempt_front.
-
-libaprsroute preempt_front (aprsroute.hpp:284-287, test routes #1, #2, #10):
-
-    in:  N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF
-    out: N0CALL>APRS,CALLA,CALLB,CALLE*,CALLC,CALLD,CALLF
-
-Our address is MOVED to the first-unused position (right after the last
-H-bit-marked address).  Addresses between the last-used and our original
-position are bumped behind us.
-
-Our code produces:
-
-    out: N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,CALLE*,CALLF   (mark in place)
-
-The tests pass because they were written to assert our actual behavior, not
-the spec.  Same false-confidence trap as the Python call_t tests.
-
-The config doc (docs/config-app-requirements.md) described PREEMPT_FRONT as
-"truncate after it" -- also wrong.  It neither moves nor truncates.
-
-### What is missing
-
-Three preempt modes are defined in KissTypes.hpp but have no implementation:
-
-| Flag | Value | Spec behavior | Status |
-|------|-------|---------------|--------|
-| ROUTING_PREEMPT_FRONT | 0x01 | Move our address to first-unused position | WRONG (does mark-in-place) |
-| ROUTING_PREEMPT_TRUNCATE | 0x02 | Erase [first_unused..our_pos], re-insert us at front | NOT IMPLEMENTED |
-| ROUTING_PREEMPT_DROP | 0x04 | Erase [0..our_pos], re-insert us at 0 | NOT IMPLEMENTED |
-| ROUTING_PREEMPT_MARK | 0x08 | Mark us in place, touch nothing else | NOT IMPLEMENTED (but is what FRONT currently does) |
+Preempt routing was removed entirely.  See ADR-0002 and the preempt
+provenance section below.  The bits 0x01-0x08 are reserved and ignored.
 
 ## Preempt mode provenance (added 2026-07-31)
 
@@ -248,12 +218,12 @@ Mapping from libaprsroute options to our flags:
 | preempt_truncate | ROUTING_PREEMPT_TRUNCATE (0x02) | |
 | preempt_drop | ROUTING_PREEMPT_DROP (0x04) | |
 | preempt_mark | ROUTING_PREEMPT_MARK (0x08) | |
-| substitute_complete_n_N_address | ROUTING_SUBSTITUTE (0x40) | |
+| substitute_complete_n_N_address | (hardcoded) | Always on, no flag |
 | skip_complete_n_N_address | ROUTING_SKIP_COMPLETE (0x80) | |
-| substitute_explicit_address | (no flag yet) | Needs a new bit or fold into SUBSTITUTE |
+| substitute_explicit_address | (no flag yet) | Needs a new bit |
 | traceless_n_N_route | (no flag yet) | Needs a new bit |
-| trap_limit_exceeding_n_N_address | (no flag yet) | Needs a new bit |
-| reject_limit_exceeding_n_N_address | (no flag yet) | Needs a new bit |
+| trap_limit_exceeding_n_N_address | -- | REJECTED -- see below |
+| reject_limit_exceeding_n_N_address | -- | REJECTED -- see below |
 | route_self | (no flag yet) | Deliberate QRM risk; hidden/debug only |
 | strict | (no flag yet) | Validation only, not routing |
 | preempt_n_N | (no flag yet) | Preempt on n-N packets |
@@ -261,6 +231,33 @@ Mapping from libaprsroute options to our flags:
 Our routing_mode byte has bits 0x10 and 0x20 free.  That's only 2 bits; the
 reference has 13 options.  We may need to decide which options to expose and
 which to hardcode.
+
+### TRAP and REJECT: explicitly rejected (2026-07-31)
+
+libaprsroute defines trap_limit_exceeding_n_N_address (replace abusive alias
+with our callsign, kill the path) and reject_limit_exceeding_n_N_address
+(drop the packet entirely).  These exist to police the network against
+WIDE7-7 flooding.
+
+Decision: neither is implemented, and neither will be.  The TNC4 is a
+personal/mobile digi with an explicit alias list (no regex).  If an address
+doesn't match a configured alias, it is ignored -- the packet passes through
+untouched.  This is already the conservative behavior.  Actively trapping
+adds airtime cost, callsign-substitution complexity, and config surface for
+a scenario that matters to high-traffic fixed digis, not personal devices.
+
+Consequence: the Alias.hops field exists solely to distinguish "normal n-N
+that decrements" from "trap that callsign-substitutes."  With no trap, hops
+is vestigial.  The `ssid <= a.hops` check in DigipeaterCore.hpp currently
+acts as an implicit N>n filter (e.g. WIDE2 with hops=2 silently ignores
+WIDE2-3).  Removing hops would change that behavior -- WIDE2-3 would match
+and be decremented.  This is a separate design decision, tracked below.
+
+Open question: deprecate Alias.hops?  Direwolf's wide pattern matches
+^WIDE[1-7]-[1-7]$ with no hop-count filter.  If we remove hops, we match
+Direwolf's behavior but lose the implicit N>n guard.  If we keep hops, we
+diverge from Direwolf but retain a simple sanity filter.  Either way, the
+field's original purpose (trap signaling) is gone.
 
 ### Phase 1: Fix preempt_front
 
@@ -290,9 +287,10 @@ documenting the conformance fix and the alias-model simplification.
    per-alias explicit/n-N flag to match libaprsroute exactly?
 
 2. routing_mode byte is 8 bits; the reference has 13 options.  Which options
-   do we expose as config bits vs hardcode?  SUBSTITUTE and SKIP_COMPLETE are
-   already in.  The four preempt modes need 4 bits.  That's 6 of 8.  Bits
-   0x10 and 0x20 are free for substitute_explicit and traceless if needed.
+   do we expose as config bits vs hardcode?  SUBSTITUTE is hardcoded (always
+   on, matches Direwolf).  SKIP_COMPLETE is configurable.  The four preempt
+   modes are reserved and ignored.  Bits 0x10 and 0x20 are free for
+   substitute_explicit and traceless if needed.
 
 3. route_self: deliberate QRM risk.  Recommend hidden/debug-only, not a
    config-app toggle.
@@ -380,14 +378,14 @@ exact expected output.  That's the test suite.  We just need to run it.
 | Category | Count | Our status |
 |----------|-------|------------|
 | n-N routing (no options) | 110 | 71 pass, 39 fail (insertion-policy diffs) |
-| substitute_complete_n_N_address | 26 | Implemented |
+| substitute_complete_n_N_address | 26 | Hardcoded (always on) |
 | substitute_explicit_address | 21 | Not implemented |
 | preempt_truncate | 18 | Not implemented |
 | traceless_n_N_route | 14 | Not implemented |
 | preempt_front | 13 | WRONG behavior |
 | preempt_drop | 8 | Not implemented |
-| trap_limit_exceeding | 4 | Not implemented |
-| reject_limit_exceeding | 4 | Not implemented |
+| trap_limit_exceeding | 4 | REJECTED -- not implementing |
+| reject_limit_exceeding | 4 | REJECTED -- not implementing |
 | skip_complete_n_N_address | 4 | Implemented |
 | preempt_mark | 1 | Not implemented (but is what FRONT does) |
 | route_self | 2 | Not implemented |

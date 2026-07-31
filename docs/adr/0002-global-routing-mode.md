@@ -26,8 +26,9 @@ Rationale: there is no formal standard for preemptive digipeating.
 - The feature is sparsely used in practice.  Real-world capture data
   (/tmp/cutecom.log, 138 AX.25 data frames) shows zero preempt routing.
 
-The routing_mode byte retains SUBSTITUTE (0x40) and SKIP_COMPLETE (0x80),
-which are implemented and tested.
+The routing_mode byte retains SKIP_COMPLETE (0x80) as the only configurable
+flag.  Substitution of exhausted n-N aliases is hardcoded -- Direwolf does
+this unconditionally and no implementation in the field runs without it.
 
 ## Original rationale for global (not per-alias) routing mode
 

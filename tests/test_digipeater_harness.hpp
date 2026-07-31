@@ -230,7 +230,7 @@ inline Alias make_alias(const std::string& call, uint8_t hops, bool set = true, 
 
 // Setup a TestConfig with a specific mycall and routing mode
 inline TestConfig make_test_config(const std::string& mycall,
-                                   uint8_t routing_mode = hardware::ROUTING_SUBSTITUTE)
+                                   uint8_t routing_mode = 0)
 {
     TestConfig cfg{};
     cfg.digipeater_enabled = 1;

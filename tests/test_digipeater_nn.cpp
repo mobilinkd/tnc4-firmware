@@ -129,7 +129,7 @@ static const std::array<RouteCase, 110> routes = {{
 }};
 static bool same(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) { return a == b; }
 static bool run_route(const RouteCase& r) {
-    auto cfg = make_test_config(r.address, hardware::ROUTING_SUBSTITUTE);
+    auto cfg = make_test_config(r.address);
     if (*r.alias) cfg.aliases[0] = make_alias(r.alias, r.hops);
     TestDigipeater digi(cfg);
     auto in = parse_ax25_packet(r.original);
@@ -168,7 +168,7 @@ TEST(routes_json_110_cases) {
     }
 }
 static bool rejected(const char* mycall, const char* alias, uint8_t hops, const char* packet) {
-    auto cfg = make_test_config(mycall, hardware::ROUTING_SUBSTITUTE);
+    auto cfg = make_test_config(mycall);
     cfg.aliases[0] = make_alias(alias, hops);
     TestDigipeater digi(cfg); auto in = parse_ax25_packet(packet);
     return digi.can_repeat(in.data(), in.size()) == nullptr;

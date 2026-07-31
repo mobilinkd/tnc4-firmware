@@ -30,7 +30,7 @@ libaprsroute ships 256 routing test cases in `routes.json` covering preempt, n-N
 
 ## What we can test NOW
 
-The current implementation handles n-N routing with `can_repeat()` matching WIDE/TRACE/RELAY/ECHO/GATE prefixes and `rewrite_frame()` doing SSID hop decrement, H-bit marking, and C-bit management. The `ROUTING_SUBSTITUTE` and `ROUTING_SKIP_COMPLETE` flags are read from settings.
+The current implementation handles n-N routing with `can_repeat()` matching WIDE/TRACE/RELAY/ECHO/GATE prefixes and `rewrite_frame()` doing SSID hop decrement, H-bit marking, and C-bit management. Substitution of exhausted n-N aliases is hardcoded (always on). The `ROUTING_SKIP_COMPLETE` flag is read from settings.
 
 **~140 testable cases** from the 256:
 - 110 n-N routing tests (WIDE1-1, WIDE2-2 hop decrement and H-bit/C-bit)
@@ -201,7 +201,7 @@ TEST(DigipeaterNN, Wide1_1_SingleHop_DecToZero) {
     
     kiss::Alias aliases[] = {make_alias("WIDE1", 1, true, true)};
     auto hw = make_test_hardware("DIGI");
-    set_routing_mode(hw, kiss::hardware::ROUTING_SUBSTITUTE);
+    // Substitution of exhausted n-N aliases is hardcoded (always on).
     
     mobilinkd::tnc::Digipeater digi(aliases, nullptr);
     

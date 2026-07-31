@@ -88,8 +88,13 @@ constexpr uint8_t ROUTING_PREEMPT_FRONT    = 0x01; // Reserved -- not implemente
 constexpr uint8_t ROUTING_PREEMPT_TRUNCATE = 0x02; // Reserved -- not implemented
 constexpr uint8_t ROUTING_PREEMPT_DROP     = 0x04; // Reserved -- not implemented
 constexpr uint8_t ROUTING_PREEMPT_MARK     = 0x08; // Reserved -- not implemented
-constexpr uint8_t ROUTING_SUBSTITUTE       = 0x40;
 constexpr uint8_t ROUTING_SKIP_COMPLETE    = 0x80;
+
+// Substitution of exhausted n-N aliases (SSID decremented to 0) is hardcoded,
+// not configurable.  Direwolf does this unconditionally -- there is no toggle.
+// The alternative (leaving WIDEn-0 in the path) produces dead addresses that
+// every downstream digi must skip.  No implementation in the field runs
+// without substitution.
 
 } // namespace hardware
 

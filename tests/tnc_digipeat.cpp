@@ -18,7 +18,6 @@
 using test::TestDigipeater;
 using mobilinkd::tnc::kiss::Alias;
 using mobilinkd::tnc::kiss::NUMBER_OF_ALIASES;
-using mobilinkd::tnc::kiss::hardware::ROUTING_SUBSTITUTE;
 using test::ax25_packet_to_string;
 using test::make_alias;
 using test::make_test_config;
@@ -254,7 +253,7 @@ int main(int argc, char** argv)
     try {
         const std::vector<uint8_t> input = read_binary_file(options.input_file);
 
-        auto cfg = test::make_test_config(options.mycall, ROUTING_SUBSTITUTE);
+        auto cfg = test::make_test_config(options.mycall);
         for (size_t i = 0; i < options.aliases.size() && i < NUMBER_OF_ALIASES; ++i) {
             cfg.aliases[i] = options.aliases[i];
         }

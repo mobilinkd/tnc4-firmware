@@ -151,14 +151,17 @@ response is never over-allocated.
 | ROUTING_PREEMPT_TRUNCATE | 0x02 | Move mycall behind last used, erase middle | No |
 | ROUTING_PREEMPT_DROP | 0x04 | Erase all addresses in front of ours | No |
 | ROUTING_PREEMPT_MARK | 0x08 | Mark our address used, leave path as-is | No |
-| ROUTING_SUBSTITUTE | 0x40 | Replace an exhausted n-N alias with our callsign | Yes |
 | ROUTING_SKIP_COMPLETE | 0x80 | Drop already-completed addresses from the path | Yes |
 
-Bits 0x10 and 0x20 are reserved (unused).
+Bits 0x10, 0x20, and 0x40 are reserved (unused).
 
-The config app may expose all six controls, but only PREEMPT_FRONT,
-SUBSTITUTE, and SKIP_COMPLETE affect routing in the current firmware.  The
-other three are stored and reported but have no effect yet.
+Substitution of exhausted n-N aliases is hardcoded, not configurable.
+Direwolf unconditionally replaces an exhausted n-N alias (SSID decremented
+to 0) with the digipeater's callsign.  No implementation in the field runs
+without substitution.
+
+The config app may expose SKIP_COMPLETE as a toggle.  The preempt bits
+(0x01-0x08) are reserved and ignored.
 
 ## Alias auto-classification
 

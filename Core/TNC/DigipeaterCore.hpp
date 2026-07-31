@@ -414,16 +414,19 @@ struct DigipeaterCore : Policy
      *
      * The match location is taken from the state populated by can_repeat()
      * (match_type_, match_addr_offset_, match_is_nN_, match_alias_).
-     * Standard alias decrement / substitution logic runs.  Preemptive
-     * routing is not supported.
+     * Standard alias decrement / substitution logic runs.  Substitution of
+     * exhausted n-N aliases is hardcoded (always on).  Preemptive routing
+     * is not supported.
      */
     bool rewrite_frame_impl(uint8_t* out, size_t& out_len, size_t out_capacity)
     {
         if (linear_len_ < 14) return false;
 
         uint8_t routing_mode = cfg_.routing_mode;
-        bool substitute = (routing_mode & kiss::hardware::ROUTING_SUBSTITUTE) != 0;
         bool skip_complete = (routing_mode & kiss::hardware::ROUTING_SKIP_COMPLETE) != 0;
+        // Substitution is hardcoded -- see KissTypes.hpp comment.
+        // When an n-N alias is exhausted (SSID decremented to 0), it is always
+        // replaced with our callsign.  Direwolf does this unconditionally.
 
         // Determine match state.  Prefer the state captured by can_repeat();
         // if absent (e.g. caller invoked rewrite_frame() without first
@@ -547,9 +550,9 @@ struct DigipeaterCore : Policy
         }
 
         // 4. Insert or substitute our callsign with H-bit set.
-        // n-N routing always inserts. Explicit routing inserts unless
-        // the matched address is our own callsign (would be a duplicate).
-        bool do_substitute = substitute && (match_is_nN && current_ssid == 1);
+        // n-N routing: substitute when exhausted (SSID was 1, now 0).
+        // Explicit routing: insert unless the matched address is our own callsign.
+        bool do_substitute = match_is_nN && current_ssid == 1;
         bool matched_is_mycall = match_shifted_callsign(
             new_path[new_match_idx].data(), cfg_.mycall, true);
 

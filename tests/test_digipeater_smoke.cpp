@@ -111,38 +111,10 @@ TEST(can_repeat_reject_already_repeated) {
 }
 
 // ============================================================================
-// Test 6: rewrite_frame: WIDE1-1 → DIGI,WIDE1* (no substitute)
-// ============================================================================
-TEST(rewrite_wide1_1_no_substitute) {
-    auto cfg = make_test_config("DIGI", 0);  // no routing flags
-    cfg.aliases[0] = make_alias("WIDE1", 1);
-    TestDigipeater digi(cfg);
-
-    auto in_buf = parse_ax25_packet("N0CALL>APRS,WIDE1-1:hello");
-    auto alias = digi.can_repeat(in_buf.data(), in_buf.size());
-    EXPECT_TRUE(alias != nullptr);
-
-    std::array<uint8_t, 330> out_buf{};
-    size_t out_len = 0;
-    auto ok = digi.rewrite_frame(in_buf.data(), in_buf.size(),
-                                 out_buf.data(), out_len, out_buf.size());
-    EXPECT_TRUE(ok);
-
-    auto str = ax25_packet_to_string(std::vector<uint8_t>(out_buf.data(), out_buf.data() + out_len), out_len);
-    // When SSID decremented from 1 to 0 without SUBSTITUTE, WIDE1-1 becomes WIDE1
-    // (SSID byte = (0 << 1) | C-bit). No asterisk.
-    // DIGI inserted before with H-bit set (= DIGI* in string form).
-    std::cerr << "  output: " << str << "\n";
-    EXPECT(str.find("DIGI*") != std::string::npos, "DIGI* not found in output: " + str);
-    EXPECT(str.find("WIDE1") != std::string::npos, "WIDE1 not found in output: " + str);
-    passed++;
-}
-
-// ============================================================================
-// Test 7: rewrite_frame: WIDE1-1 → DIGI* (substitute mode)
+// Test 6: rewrite_frame: WIDE1-1 → DIGI* (substitution always on)
 // ============================================================================
 TEST(rewrite_wide1_1_substitute) {
-    auto cfg = make_test_config("DIGI", hardware::ROUTING_SUBSTITUTE);
+    auto cfg = make_test_config("DIGI", 0);  // no routing flags needed
     cfg.aliases[0] = make_alias("WIDE1", 1);
     TestDigipeater digi(cfg);
 
@@ -157,7 +129,8 @@ TEST(rewrite_wide1_1_substitute) {
     EXPECT_TRUE(ok);
 
     auto str = ax25_packet_to_string(std::vector<uint8_t>(out_buf.data(), out_buf.data() + out_len), out_len);
-    // When SSID decremented to 0 and ROUTING_SUBSTITUTE, WIDE1-1 replaced by DIGI*
+    // Substitution is hardcoded: WIDE1-1 exhausted → replaced by DIGI*
+    std::cerr << "  output: " << str << "\n";
     EXPECT(str.find("DIGI*") != std::string::npos, "DIGI* not found in output: " + str);
     EXPECT(str.find("WIDE1") == std::string::npos, "WIDE1 should be gone: " + str);
     passed++;
