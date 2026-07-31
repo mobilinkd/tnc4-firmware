@@ -63,6 +63,46 @@ Three preempt modes are defined in KissTypes.hpp but have no implementation:
 | ROUTING_PREEMPT_DROP | 0x04 | Erase [0..our_pos], re-insert us at 0 | NOT IMPLEMENTED |
 | ROUTING_PREEMPT_MARK | 0x08 | Mark us in place, touch nothing else | NOT IMPLEMENTED (but is what FRONT currently does) |
 
+## Preempt mode provenance (added 2026-07-31)
+
+The four preempt modes in libaprsroute do NOT all come from the same source.
+Only two are in the APRS spec.  One is a Direwolf enhancement.  One is a
+libaprsroute invention based on an unimplemented idea from a code comment.
+
+Sources:
+- APRS spec: WB4APR "Preemptive Digipeating" (aprs.org/aprs12/preemptive-digipeating.txt)
+  Defines three settings: OFF, DROP, MARK.  No other preempt modes.
+- Direwolf (wb2osz/direwolf, src/digipeater.c): implements PREEMPT_OFF,
+  PREEMPT_DROP, PREEMPT_MARK, and PREEMPT_TRACE.  TRACE is WB2OSZ's own
+  enhancement ("My enhancement - remove prior unused digis") to provide an
+  accurate path trace.  Not in the APRS spec.
+- libaprsroute (iontodirel/libaprsroute, aprsroute.hpp:270-437): defines
+  preempt_front, preempt_truncate, preempt_drop, preempt_mark.
+  preempt_truncate == Direwolf's PREEMPT_TRACE (same semantics: erase
+  addresses between last-used and our position, re-insert us there).
+  preempt_front is NOT in Direwolf and NOT in the APRS spec.  It corresponds
+  to an unimplemented idea in a code comment in digipeater.c:
+
+      // Idea: Here is an interesting idea for a new option. REORDER?
+      // The preemptive digipeater could move its call after the (formerly)
+      // last used digi field and preserve all the unused fields after that.
+
+  No digipeater in the field produces or consumes preempt_front paths.
+
+Mapping:
+
+| libaprsroute     | Direwolf        | APRS spec | Provenance               |
+|------------------|-----------------|-----------|--------------------------|
+| preempt_front    | (not implemented)| no        | libaprsroute invention   |
+| preempt_truncate | PREEMPT_TRACE   | no        | Direwolf enhancement     |
+| preempt_drop     | PREEMPT_DROP     | DROP      | APRS spec                |
+| preempt_mark     | PREEMPT_MARK     | MARK      | APRS spec                |
+
+Decision: Initially support DROP and MARK only (the two APRS spec modes).
+TRACE and FRONT are deferred pending further research.  The routing_mode
+bit assignments in KissTypes.hpp will need to be revised to reflect this --
+the current 0x01 (PREEMPT_FRONT) bit is mislabeled and will be reassigned.
+
 **Bug 2: ROUTING_SKIP_COMPLETE (0x80) is wrong in two ways.**
 
 libaprsroute definition (aprsroute.hpp:333-341):
