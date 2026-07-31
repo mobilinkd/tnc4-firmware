@@ -10,3 +10,4 @@ build_host/
 *.swp
 HANDOFF.md
 docs/handoff/
+tests/build_tests/
