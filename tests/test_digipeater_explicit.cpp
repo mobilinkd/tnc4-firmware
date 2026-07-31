@@ -9,8 +9,9 @@
 //
 // Everything else (preempt_*, substitute_explicit_address, traceless_n_N_route,
 // reject_/trap_limit_*, strict, route_self, and any combination thereof) is
-// stubbed as DISABLED so the test still shows the test vector is loaded and
-// skipped, but no assertion runs.
+// unsupported.  Preemptive digipeating is explicitly not implemented (see
+// KissTypes.hpp).  Other modes are stubbed as DISABLED so the test still shows
+// the test vector is loaded and skipped, but no assertion runs.
 
 #include "test_digipeater_harness.hpp"
 
@@ -189,10 +190,6 @@ enum class Mode {
     SkipCompleteNN,
 
     // Not implemented — stubs only
-    PreemptFront,
-    PreemptTruncate,
-    PreemptDrop,
-    PreemptMark,
     SubstituteExplicit,
     TracelessNN,
     RejectLimitExceeding,
@@ -211,10 +208,6 @@ static Mode classify_options(const std::string& opts)
     if (opts == "substitute_complete_n_N_address") return Mode::SubstituteCompleteNN;
     if (opts == "skip_complete_n_N_address")       return Mode::SkipCompleteNN;
 
-    if (opts == "preempt_front")         return Mode::PreemptFront;
-    if (opts == "preempt_truncate")      return Mode::PreemptTruncate;
-    if (opts == "preempt_drop")          return Mode::PreemptDrop;
-    if (opts == "preempt_mark")          return Mode::PreemptMark;
     if (opts == "substitute_explicit_address") return Mode::SubstituteExplicit;
     if (opts == "traceless_n_N_route")   return Mode::TracelessNN;
     if (opts == "reject_limit_exceeding_n_N_address") return Mode::RejectLimitExceeding;
@@ -563,187 +556,6 @@ TEST(impl_skip_complete_id_235) {
 // ============================================================================
 
 // ============================================================================
-// Implemented-mode tests: preempt_front (routes 57, 77-83, 147, and others)
-//
-// ROUTING_PREEMPT_FRONT enables the "I see myself in the path" routing rule:
-// when the normal alias scan at the first-unmatched position fails to match,
-// the router scans the entire path for our own callsign (mycall).  If found
-// (regardless of position), the rewrite truncates the path at our position,
-// sets the H-bit on our entry, and drops everything after.  No SSID
-// decrement and no alias insertion -- we already occupy a slot.
-//
-// The harness's mycall-in-path-without-H-bit check is also relaxed in this
-// mode so that frames where our callsign appears later in the path can be
-// routed.
-// ============================================================================
-
-TEST(impl_preempt_id_57_reject_mycall_h_bit) {
-    // Route 57: DIGI already has H-bit (already processed).  Must reject
-    // even though WIDE1-1 is a normal alias match candidate ahead of it.
-    auto cfg = make_test_config("DIGI", hardware::ROUTING_PREEMPT_FRONT);
-    cfg.aliases[0] = make_alias("WIDE1", 1);
-    TestDigipeater digi(cfg);
-    auto buf = parse_ax25_packet("FROM>APRS,CALL,WIDE1-1,DIGI*,WIDE2-1:data");
-    auto result = digi.can_repeat(buf.data(), buf.size());
-    EXPECT_TRUE(result == nullptr);
-    passed++;
-}
-
-TEST(impl_preempt_id_77_mark_middle) {
-    // Route 77: mycall=DIGIB, alias=DIGIB hops=1.
-    // Path: DIGIA*, DIGIB, DIGIC, DIGID, DIGIE, DIGIF, DIGIG, DIGIH
-    // DIGIA has H-bit (already processed).  With preempt_front enabled,
-    // the mycall-in-path check is relaxed.  Normal scan finds DIGIB at
-    // position 21 (alias matches), so it routes there.  Expected output:
-    // DIGIA (no *), DIGIB* (with *), DIGIC...DIGIH unchanged.
-    auto r = RouteVec{ "77", "DIGIB", "DIGIB",
-        "N0CALL>APRS,DIGIA*,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB*,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGIB*") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIC") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIH") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_78_mark_middle) {
-    // Route 78: mycall=DIGIC, alias=DIGIC hops=1.
-    auto r = RouteVec{ "78", "DIGIC", "DIGIC",
-        "N0CALL>APRS,DIGIA,DIGIB*,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC*,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGIC*") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIH") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_79_mark_middle) {
-    // Route 79: mycall=DIGID, alias=DIGID hops=1.
-    auto r = RouteVec{ "79", "DIGID", "DIGID",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC*,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID*,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGID*") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIH") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_80_mark_middle) {
-    // Route 80: mycall=DIGIE, alias=DIGIE hops=1.
-    auto r = RouteVec{ "80", "DIGIE", "DIGIE",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID*,DIGIE,DIGIF,DIGIG,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE*,DIGIF,DIGIG,DIGIH:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGIE*") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIH") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_81_mark_middle) {
-    // Route 81: mycall=DIGIF, alias=DIGIF hops=1.
-    auto r = RouteVec{ "81", "DIGIF", "DIGIF",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE*,DIGIF,DIGIG,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF*,DIGIG,DIGIH:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGIF*") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIH") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_82_mark_middle) {
-    // Route 82: mycall=DIGIG, alias=DIGIG hops=1.
-    auto r = RouteVec{ "82", "DIGIG", "DIGIG",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF*,DIGIG,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG*,DIGIH:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGIG*") != std::string::npos);
-    EXPECT_TRUE(out.find("DIGIH") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_83_mark_last_truncates) {
-    // Route 83: mycall=DIGIH, alias=DIGIH hops=1.
-    // DIGIH is the last entry -- truncation leaves nothing after, so the
-    // path is unchanged in length.  DIGIH gets H-bit set.
-    auto r = RouteVec{ "83", "DIGIH", "DIGIH",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG*,DIGIH:data",
-        "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH*:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGIH*") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_id_147_preempt_finds_mycall_first) {
-    // Route 147: mycall=DIGI, alias=WIDE1 hops=1.
-    // Path: DIGI, WIDE2-2.
-    // DIGI is the first address (no H-bit).  WIDE1 doesn't match DIGI or
-    // WIDE2 -- normal alias scan fails.  Preempt scan finds DIGI (mycall)
-    // at the first position, sets H-bit, preserves WIDE2-2.
-    auto r = RouteVec{ "147", "DIGI", "WIDE1",
-        "N0CALL>APRS,DIGI,WIDE2-2:data",
-        "N0CALL>APRS,DIGI*,WIDE2-2:data",
-        true, "preempt_front" };
-    auto out = run_harness(r, hardware::ROUTING_PREEMPT_FRONT);
-    EXPECT_TRUE(out.find("DIGI*") != std::string::npos);
-    EXPECT_TRUE(out.find("WIDE2-2") != std::string::npos);
-    passed++;
-}
-
-TEST(impl_preempt_no_match_when_mycall_absent) {
-    // No alias matches, mycall not in path.  Should NOT route.
-    auto cfg = make_test_config("DIGI", hardware::ROUTING_PREEMPT_FRONT);
-    cfg.aliases[0] = make_alias("WIDE1", 1);
-    TestDigipeater digi(cfg);
-    auto buf = parse_ax25_packet("N0CALL>APRS,A,B,C,WIDE1-1:hello");
-    auto result = digi.can_repeat(buf.data(), buf.size());
-    // Normal alias scan succeeds at WIDE1-1, so this DOES route.
-    EXPECT_TRUE(result != nullptr);
-    passed++;
-}
-
-TEST(impl_preempt_disabled_mycall_path_no_match) {
-    // Without preempt_front, mycall in path without H-bit but not at
-    // first-unmatched position should reject (would create duplicate).
-    auto cfg = make_test_config("DIGIC", 0);  // no routing flags
-    cfg.aliases[0] = make_alias("DIGIC", 1);
-    TestDigipeater digi(cfg);
-    auto buf = parse_ax25_packet("N0CALL>APRS,DIGIA,DIGIB*,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data");
-    auto result = digi.can_repeat(buf.data(), buf.size());
-    EXPECT_TRUE(result == nullptr);
-    passed++;
-}
-
-TEST(impl_preempt_no_alias_just_mycall) {
-    // No aliases configured at all.  Mycall appears in path -- preempt
-    // finds it.
-    auto cfg = make_test_config("DIGIC", hardware::ROUTING_PREEMPT_FRONT);
-    // No aliases.
-    TestDigipeater digi(cfg);
-    auto buf = parse_ax25_packet("N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID:data");
-    auto result = digi.can_repeat(buf.data(), buf.size());
-    EXPECT_TRUE(result != nullptr);
-    // Run rewrite and verify the output marks DIGIC but preserves DIGID.
-    std::array<uint8_t, 330> out_buf{};
-    size_t out_len = 0;
-    bool ok = digi.rewrite_frame(buf.data(), buf.size(),
-                                 out_buf.data(), out_len, out_buf.size());
-    EXPECT_TRUE(ok);
-    auto str = ax25_packet_to_string(std::vector<uint8_t>(out_buf.data(),
-                                                          out_buf.data() + out_len),
-                                     out_len);
-    EXPECT_TRUE(str.find("DIGIC*") != std::string::npos);
-    // preempt_front preserves the full path -- DIGID survives.
-    EXPECT_TRUE(str.find("DIGID") != std::string::npos);
-    passed++;
-}
-// ============================================================================
 // SSID-aware mycall tests
 // ============================================================================
 
@@ -864,9 +676,6 @@ TEST(ssid_zero_still_works) {
     passed++;
 }
 
-TEST(disabled_preempt_truncate) { disabled++; }
-TEST(disabled_preempt_drop) { disabled++; }
-TEST(disabled_preempt_mark) { disabled++; }
 TEST(disabled_substitute_explicit) { disabled++; }
 TEST(disabled_traceless_n_N) { disabled++; }
 TEST(disabled_reject_limit) { disabled++; }

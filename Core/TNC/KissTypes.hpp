@@ -72,11 +72,22 @@ const size_t NUMBER_OF_BEACONS = 4;     // 672 bytes
 
 namespace hardware {
 
-// Routing mode flags for digipeater: only one of PREEMPT_FRONT/TRUNCATE/DROP/MARK may be set.
-constexpr uint8_t ROUTING_PREEMPT_FRONT    = 0x01;
-constexpr uint8_t ROUTING_PREEMPT_TRUNCATE = 0x02;
-constexpr uint8_t ROUTING_PREEMPT_DROP     = 0x04;
-constexpr uint8_t ROUTING_PREEMPT_MARK     = 0x08;
+// Preemptive digipeating modes -- EXPLICITLY UNSUPPORTED.
+//
+// The APRS spec (WB4APR, preemptive-digipeating.txt) defines DROP and MARK,
+// but the two spec documents (preemptive-digipeating.txt and RR-bits.txt)
+// disagree on RR-bit handling.  No implementation follows the spec exactly:
+// Direwolf ignores RR bits, implements DROP/MARK/TRACE, and deprecates DROP
+// and MARK in favor of TRACE.  The community considers the feature unreliable.
+// There is no formal, ratified standard for preemptive digipeating.
+//
+// These constants are retained for documentation and future use, but the
+// firmware does not implement any preemptive routing behavior.  The routing_mode
+// bits 0x01-0x08 are reserved and ignored by the routing engine.
+constexpr uint8_t ROUTING_PREEMPT_FRONT    = 0x01; // Reserved -- not implemented
+constexpr uint8_t ROUTING_PREEMPT_TRUNCATE = 0x02; // Reserved -- not implemented
+constexpr uint8_t ROUTING_PREEMPT_DROP     = 0x04; // Reserved -- not implemented
+constexpr uint8_t ROUTING_PREEMPT_MARK     = 0x08; // Reserved -- not implemented
 constexpr uint8_t ROUTING_SUBSTITUTE       = 0x40;
 constexpr uint8_t ROUTING_SKIP_COMPLETE    = 0x80;
 
