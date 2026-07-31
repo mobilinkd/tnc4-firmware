@@ -8,3 +8,5 @@ build_host/
 .gitnexus/
 .hermes/
 *.swp
+HANDOFF.md
+docs/handoff/

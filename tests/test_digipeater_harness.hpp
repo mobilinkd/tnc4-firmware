@@ -151,6 +151,13 @@ inline std::vector<uint8_t> parse_ax25_packet(const std::string& packet)
 // conventional APRS text form is SRC>DEST,DIGI1,DIGI2*:info -- so source and
 // destination are emitted in reverse of their wire positions.  SSID is decoded
 // on every address (source, destination, and digipeaters).
+//
+// DISPLAY DEVIATION (deliberate): The standard TNC-2 monitoring format shows
+// '*' only after the LAST used digipeater; earlier used addresses are implied
+// (see APRS-Digipeater-Algorithm.pdf, WB2OSZ).  This function instead shows '*'
+// on EVERY address whose H-bit is set.  On the wire, all used digis carry the
+// H-bit -- the single-asterisk form is a display convention, not a wire rule.
+// Showing all H-bit addresses is more useful for routing verification.
 inline std::string ax25_packet_to_string(const uint8_t* buf, size_t len)
 {
     if (len < 14) return "(too short)";

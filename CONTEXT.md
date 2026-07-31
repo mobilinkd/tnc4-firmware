@@ -226,3 +226,11 @@ _Avoid_: Fork (suggests git fork workflow — these are independent repos)
 ## Known architectural issues
 
 - `Core/TNC/` should be refactored so the **TNC** logic lives outside of `Core/` rather than underneath it.
+
+## External references
+
+- **APRS Documentation Project** (wb2osz/aprsspec): https://github.com/wb2osz/aprsspec
+  - APRS-Digipeater-Algorithm.pdf -- authoritative digipeater behavior (H-bit semantics, n-N paradigm, preempt routing, duplicate suppression).  The APRS Working Group never produced a digipeater spec; this is the closest thing to one.
+  - APRS12c.pdf -- APRS Protocol Specification 1.2 draft (compilation of the 1.0.1 spec plus all errata and proposals since 2000).
+  - Understanding-APRS-Packets.pdf -- packet format, common mistakes.
+  - AX.25 spec: https://www.ax25.net/AX25.2.2-Jul%2098-2.pdf

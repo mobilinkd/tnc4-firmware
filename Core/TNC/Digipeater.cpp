@@ -89,20 +89,19 @@ static void beaconTimerCallback(void const* arg)
     }
 
     // Destination address: 6 shifted chars + SSID byte.
-    // call_t is char[8] NUL-padded; treat NUL as space for AX.25.
     for (size_t i = 0; i < 6; i++) {
-        char c = beacon.dest[i] ? beacon.dest[i] : ' ';
+        char c = beacon.dest.callsign[i] ? beacon.dest.callsign[i] : ' ';
         frame->push_back(static_cast<uint8_t>(c << 1));
     }
-    // C-bit: 0 if path follows, 1 if direct (no path).
-    frame->push_back(beacon.path_count > 0 ? 0x00 : 0x01);
+    frame->push_back((beacon.dest.ssid << 1) | (beacon.path_count > 0 ? 0x00 : 0x01));
 
     // Source address (mycall): 6 shifted chars + SSID byte.
     auto& mycall = settings().mycall;
     for (size_t i = 0; i < 6; i++) {
-        frame->push_back(static_cast<uint8_t>(mycall[i] << 1));
+        char c = mycall.callsign[i] ? mycall.callsign[i] : ' ';
+        frame->push_back(static_cast<uint8_t>(c << 1));
     }
-    frame->push_back(beacon.path_count > 0 ? 0x00 : 0x01);
+    frame->push_back((mycall.ssid << 1) | (beacon.path_count > 0 ? 0x00 : 0x01));
 
     // Pre-encoded path addresses — pure byte copy, no string parsing.
     for (uint8_t i = 0; i < beacon.path_count; i++) {

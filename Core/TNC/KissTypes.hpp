@@ -14,10 +14,28 @@
 namespace mobilinkd { namespace tnc { namespace kiss {
 
 const size_t CALLSIGN_LEN = 8;
-using call_t = std::array<char, CALLSIGN_LEN>;
+
+/**
+ * AX.25 callsign with SSID.  Same 8-byte footprint as the old
+ * std::array<char, 8>, but now carries the SSID explicitly.
+ *
+ * Layout (matches EEPROM wire format byte-for-byte):
+ *   [0..5]  callsign characters, space-padded (NOT NUL-padded)
+ *   [6]     pad, must be 0
+ *   [7]     SSID (0-15)
+ *
+ * Space-padding (not NUL) matches the AX.25 on-air encoding where
+ * unused character positions are shifted spaces (0x40).
+ */
+struct call_t {
+    std::array<char, 6> callsign{};
+    uint8_t pad = 0;
+    uint8_t ssid = 0;
+};
+static_assert(sizeof(call_t) == 8, "call_t must be 8 bytes for EEPROM compatibility");
 
 struct Alias {
-    call_t call;                ///< Callsign.  Pad unused with NUL.
+    call_t call;                ///< Callsign with SSID.
     bool set;                   ///< Alias is configured.
     bool use;                   ///< Use this alias.
     uint8_t hops;               ///< Hop count remaining
@@ -40,7 +58,7 @@ const size_t BEACON_MAX_PATH_ADDRS = 4;
  *                  bit 0 (C-bit) = 0 (set during frame construction)
  */
 struct Beacon {
-    call_t dest;                            ///< callsign.  Pad unused with NUL.
+    call_t dest;                            ///< Callsign with SSID.
     uint8_t dest_len;                       ///< Length of dest string (0-8).
     uint8_t path[BEACON_MAX_PATH_ADDRS][7]; ///< Pre-encoded AX.25 path addresses.
     uint8_t path_count;                     ///< Number of addresses in path (0-4).

@@ -183,7 +183,7 @@ void Hardware::get_alias(uint8_t alias) {
     uint8_t result[12];
     if (alias >= NUMBER_OF_ALIASES or not aliases[alias].set) return;
     result[0] = alias;
-    memcpy(result + 1, aliases[alias].call.data(), aliases[alias].call.size());
+    memcpy(result + 1, &aliases[alias].call, sizeof(call_t));
     result[9] = aliases[alias].set;
     result[10] = aliases[alias].use;
     result[11] = aliases[alias].hops;
@@ -200,8 +200,10 @@ void Hardware::set_alias(hdlc::IoFrame* frame) {
         return;
     }
     auto& a = aliases[alias];
-    for (size_t i = 0; i < a.call.size(); i++) {
-        a.call[i] = *it++;
+    // Read 8 bytes (callsign[6] + pad + ssid) from the KISS frame.
+    auto* call_bytes = reinterpret_cast<uint8_t*>(&a.call);
+    for (size_t i = 0; i < sizeof(call_t); i++) {
+        call_bytes[i] = *it++;
     }
     a.set = *it++;
     a.use = *it++;
@@ -226,11 +228,11 @@ void Hardware::set_beacon(hdlc::IoFrame* frame)
     interval |= *it++;
 
     // Destination string (NUL-delimited in KISS frame)
-    beacon.dest.fill(0);
+    beacon.dest = {};
     size_t di;
-    for (di = 0; di < beacon.dest.size(); di++) {
+    for (di = 0; di < beacon.dest.callsign.size(); di++) {
         char c = static_cast<char>(*it++);
-        beacon.dest[di] = c;
+        beacon.dest.callsign[di] = c;
         if (c == '\0') break;
     }
     beacon.dest_len = di;
@@ -355,7 +357,7 @@ void Hardware::get_beacon(uint8_t slot)
     buf[pos++] = slot;
     buf[pos++] = static_cast<uint8_t>((beacon.seconds >> 8) & 0xFF);
     buf[pos++] = static_cast<uint8_t>(beacon.seconds & 0xFF);
-    std::memcpy(buf + pos, beacon.dest.data(), dest_len);
+    std::memcpy(buf + pos, beacon.dest.callsign.data(), dest_len);
     pos += dest_len;
     buf[pos++] = 0;
     std::memcpy(buf + pos, path_str, path_len);
@@ -392,8 +394,8 @@ void Hardware::get_all_digipeater_configs()
     for (size_t i = 0; i < NUMBER_OF_ALIASES; i++) {
         auto& a = aliases[i];
         buf[pos++] = static_cast<uint8_t>(i);
-        std::memcpy(buf + pos, a.call.data(), a.call.size());
-        pos += a.call.size();
+        std::memcpy(buf + pos, &a.call, sizeof(call_t));
+        pos += sizeof(call_t);
         buf[pos++] = a.set ? 1 : 0;
         buf[pos++] = a.use ? 1 : 0;
         buf[pos++] = a.hops;
@@ -454,7 +456,7 @@ void Hardware::get_all_beacon_configs()
         buf[pos++] = static_cast<uint8_t>(beacon.seconds & 0xFF);
 
         // dest (NUL-terminated)
-        std::memcpy(buf + pos, beacon.dest.data(), beacon.dest_len);
+        std::memcpy(buf + pos, beacon.dest.callsign.data(), beacon.dest_len);
         pos += beacon.dest_len;
         buf[pos++] = 0;
 

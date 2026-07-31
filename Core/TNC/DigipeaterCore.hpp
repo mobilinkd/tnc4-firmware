@@ -176,15 +176,23 @@ struct DigipeaterCore : Policy
     }
 
     /**
-     * Compare a 6-byte shifted AX.25 callsign against an 8-byte call_t.
-     * call_t is NUL-padded -- compare up to the NUL or first 6 chars.
+     * Compare a 6-byte shifted AX.25 callsign against a call_t.
+     * Compares the 6 character positions (NUL treated as space).
+     * When check_ssid is true, also compares the SSID byte (byte 6)
+     * against call.ssid.  Used for mycall identity checks where
+     * WX9O-1 and WX9O-5 are different stations.
      */
-    bool match_shifted_callsign(const uint8_t* shifted, const kiss::call_t& call)
+    bool match_shifted_callsign(const uint8_t* shifted, const kiss::call_t& call,
+                                bool check_ssid = false)
     {
         for (size_t i = 0; i < 6; i++) {
             char c = shifted[i] >> 1;
-            char ref = (i < call.size() && call[i] != '\0') ? call[i] : ' ';
+            char ref = call.callsign[i] ? call.callsign[i] : ' ';
             if (c != ref) return false;
+        }
+        if (check_ssid) {
+            uint8_t frame_ssid = (shifted[6] >> 1) & 0x0F;
+            if (frame_ssid != call.ssid) return false;
         }
         return true;
     }
@@ -252,7 +260,7 @@ struct DigipeaterCore : Policy
             size_t plen = std::strlen(prefix);
             bool match = true;
             for (size_t i = 0; i < plen; i++) {
-                if (call[i] == '\0' || call[i] != prefix[i]) { match = false; break; }
+                if (call.callsign[i] == '\0' || call.callsign[i] != prefix[i]) { match = false; break; }
             }
             if (match) return true;
         }
@@ -263,16 +271,13 @@ struct DigipeaterCore : Policy
      * Encode our callsign (mycall) as a 7-byte AX.25 shifted address block.
      * The SSID byte is set with H-bit (bit 7) to mark "has been repeated".
      *
-     * mycall is a call_t (char[8]), NUL-padded. We compare 6 chars, pad with spaces.
-     * SSID is taken from the mycall field if present, or 0.
-     *
      * out must point to a 7-byte buffer.
      */
     void encode_mycall_address(uint8_t* out, uint8_t ssid, bool set_h_bit)
     {
         auto& mycall = cfg_.mycall;
         for (size_t i = 0; i < 6; i++) {
-            char c = (i < mycall.size() && mycall[i] != '\0') ? mycall[i] : ' ';
+            char c = mycall.callsign[i] ? mycall.callsign[i] : ' ';
             out[i] = static_cast<uint8_t>(c << 1);
         }
         // SSID byte: (ssid << 1) | H-bit (0x80 if set) | reserved bits
@@ -318,10 +323,10 @@ struct DigipeaterCore : Policy
         if (!is_aprs_frame()) return nullptr;
 
         // Don't digipeat frames addressed to us.
-        if (match_shifted_callsign(linear_buf_.data(), cfg_.mycall)) return nullptr;
+        if (match_shifted_callsign(linear_buf_.data(), cfg_.mycall, true)) return nullptr;
 
         // Don't digipeat our own frames (source == mycall).
-        if (match_shifted_callsign(linear_buf_.data() + 7, cfg_.mycall)) return nullptr;
+        if (match_shifted_callsign(linear_buf_.data() + 7, cfg_.mycall, true)) return nullptr;
 
         // Don't digipeat if our callsign already appears in the path.
         //   - If H-bit set: already processed, reject.
@@ -333,7 +338,7 @@ struct DigipeaterCore : Policy
             (cfg_.routing_mode & kiss::hardware::ROUTING_PREEMPT_FRONT) != 0;
         size_t path_end = 14;
         while (path_end + 7 <= linear_len_) {
-            if (match_shifted_callsign(linear_buf_.data() + path_end, cfg_.mycall)) {
+            if (match_shifted_callsign(linear_buf_.data() + path_end, cfg_.mycall, true)) {
                 bool repeated = (linear_buf_[path_end + 6] & 0x80) != 0;
                 if (repeated) return nullptr;
                 if (!preempt_enabled) {
@@ -401,7 +406,7 @@ struct DigipeaterCore : Policy
         if ((cfg_.routing_mode & kiss::hardware::ROUTING_PREEMPT_FRONT) != 0) {
             size_t scan_pos = 14;
             while (scan_pos + 7 <= linear_len_) {
-                if (match_shifted_callsign(linear_buf_.data() + scan_pos, cfg_.mycall)) {
+                if (match_shifted_callsign(linear_buf_.data() + scan_pos, cfg_.mycall, true)) {
                     // H-bit guard above already filtered these out, but
                     // skip defensively.
                     bool repeated = (linear_buf_[scan_pos + 6] & 0x80) != 0;
@@ -595,11 +600,11 @@ struct DigipeaterCore : Policy
             // the matched address is our own callsign (would be a duplicate).
             bool do_substitute = substitute && (match_is_nN && current_ssid == 1);
             bool matched_is_mycall = match_shifted_callsign(
-                new_path[new_match_idx].data(), cfg_.mycall);
+                new_path[new_match_idx].data(), cfg_.mycall, true);
 
             if (match_is_nN || !matched_is_mycall) {
                 if (do_substitute) {
-                    encode_mycall_address(new_path[new_match_idx].data(), 0, match_is_nN);
+                    encode_mycall_address(new_path[new_match_idx].data(), cfg_.mycall.ssid, match_is_nN);
                     uint8_t c_bit = path_addrs[match_idx][6] & 0x01;
                     new_path[new_match_idx][6] |= c_bit;
                 } else {
@@ -607,7 +612,7 @@ struct DigipeaterCore : Policy
                         for (size_t i = new_path_count; i > new_match_idx; i--) {
                             new_path[i] = new_path[i - 1];
                         }
-                        encode_mycall_address(new_path[new_match_idx].data(), 0, match_is_nN);
+                        encode_mycall_address(new_path[new_match_idx].data(), cfg_.mycall.ssid, match_is_nN);
                         new_path_count++;
                     }
                 }

@@ -56,10 +56,29 @@ std::string uppercase(std::string value)
 
 void validate_call(const std::string& call, const std::string& option)
 {
-    if (call.empty() || call.size() > 6) {
+    // Accept "CALL" or "CALL-N" where N is 0-15.
+    std::string base = call;
+    auto dash = call.find('-');
+    if (dash != std::string::npos) {
+        base = call.substr(0, dash);
+        std::string ssid_str = call.substr(dash + 1);
+        if (ssid_str.empty() || ssid_str.size() > 2) {
+            throw std::runtime_error(option + " SSID must be 0-15");
+        }
+        for (unsigned char c : ssid_str) {
+            if (!std::isdigit(c)) {
+                throw std::runtime_error(option + " SSID must be numeric");
+            }
+        }
+        int ssid = std::stoi(ssid_str);
+        if (ssid < 0 || ssid > 15) {
+            throw std::runtime_error(option + " SSID must be 0-15");
+        }
+    }
+    if (base.empty() || base.size() > 6) {
         throw std::runtime_error(option + " must contain 1 to 6 characters");
     }
-    for (unsigned char c : call) {
+    for (unsigned char c : base) {
         if (!std::isalnum(c)) {
             throw std::runtime_error(option + " must contain only letters and digits");
         }

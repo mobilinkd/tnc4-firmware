@@ -315,7 +315,8 @@ struct Hardware
       options = KISS_OPTION_PTT_SIMPLEX;
 
       /// Callsign.   Pad unused with NUL.
-      strcpy(mycall.data(), "NOCALL");
+      mycall = {};  // zero-init, then set callsign
+      memcpy(mycall.callsign.data(), "NOCALL", 6);
 
       dedupe_seconds = 30;
       digipeater_enabled = 0;
@@ -343,21 +344,21 @@ struct Hardware
         TNC_DEBUG("RX Twist: %d", (int)rx_twist);
         TNC_DEBUG("Log Level: %d", (int)log_level);
         TNC_DEBUG("Options:  %04hx", options);
-        TNC_DEBUG("MYCALL: %s", mycall.data());
+        TNC_DEBUG("MYCALL: %.*s-%d", (int)mycall.callsign.size(), mycall.callsign.data(), (int)mycall.ssid);
         TNC_DEBUG("Dedupe time (secs): %d", (int)dedupe_seconds);
         TNC_DEBUG("Digi enabled: %d", (int)digipeater_enabled);
         TNC_DEBUG("Routing mode: 0x%02x", (int)routing_mode);
         TNC_DEBUG("Aliases:");
         for (auto& a : aliases) {
             if (!a.set) continue;
-            TNC_DEBUG(" call: %s", a.call.data());
+            TNC_DEBUG(" call: %.*s-%d", (int)a.call.callsign.size(), a.call.callsign.data(), (int)a.call.ssid);
             TNC_DEBUG(" use: %d", (int)a.use);
             TNC_DEBUG(" hops: %d", (int)a.hops);
         }
         TNC_DEBUG("Beacons:");
         for (auto& b : this->beacons) {
             if (b.seconds == 0) continue;
-            TNC_DEBUG(" dest: %s", b.dest.data());
+            TNC_DEBUG(" dest: %.*s-%d", (int)b.dest.callsign.size(), b.dest.callsign.data(), (int)b.dest.ssid);
             TNC_DEBUG(" path: %d addrs", (int)b.path_count);
             TNC_DEBUG(" text: %s", (char*)b.text);
             TNC_DEBUG(" frequency (secs): %d", (int)b.seconds);
