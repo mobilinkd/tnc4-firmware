@@ -153,6 +153,28 @@ static bool is_known_substitution_divergence(const ConfRoute& r,
     return actual_has_substitute;
 }
 
+// Malformed-path policy divergence: a packet whose first unused path
+// slot is an empty placeholder (all-space callsign) has a hole in its
+// digipeater path -- it is malformed.  The firmware drops malformed
+// packets; the libaprsroute reference routes them and removes the empty
+// slot during rewrite.  Deliberate divergence (see plan, case 221).
+static bool first_unused_slot_is_empty(const std::vector<uint8_t>& frame)
+{
+    size_t pos = 14;
+    while (pos + 7 <= frame.size()) {
+        if (!(frame[pos + 6] & 0x80)) {
+            // First unused slot: check for all-space callsign.
+            for (size_t i = 0; i < 6; i++) {
+                if ((frame[pos + i] >> 1) != ' ') return false;
+            }
+            return true;
+        }
+        if (frame[pos + 6] & 0x01) break;  // C-bit = last addr
+        pos += 7;
+    }
+    return false;
+}
+
 // Check whether a vector's options string contains any routing mode that
 // the firmware does NOT implement.  The data's has_unsupported flag is
 // unreliable (many unsupported vectors have has_unsupported=false), so
@@ -245,7 +267,15 @@ static std::string run_conf_route(const ConfRoute& r,
     bool we_routed = (match != nullptr);
 
     if (we_routed != r.routed) {
-        // Routing-decision mismatches are always real failures, not
+        // Malformed-path policy divergence: the reference routes a
+        // packet whose first unused slot is empty (and cleans up the
+        // hole during rewrite).  We drop it as malformed.  Deliberate.
+        if (!we_routed && r.routed && first_unused_slot_is_empty(in)) {
+            out_actual_str = "not routed (malformed: empty path slot)";
+            out_expected_str = r.routed ? "routed" : "not routed";
+            return "DIVERGENCE";
+        }
+        // All other routing-decision mismatches are real failures, not
         // substitution divergences.  Substitution only affects the
         // rewritten path contents, never the can_repeat verdict.
         out_actual_str = we_routed ? "routed" : "not routed";

@@ -70,8 +70,15 @@ Phase 2 -- check the blocking rule:
   addresses are used). If the matched address is at a position AFTER
   the unused address index, AND the address at the unused index is
   non-empty (not a placeholder), the packet is DROPPED. If the match
-  is AT the unused address index, route. If the address at the unused
-  index is empty (placeholder), allow routing past it.
+  is AT the unused address index, route.
+
+  Malformed-path policy: if the address at the unused index is empty
+  (an all-space placeholder) and there is any non-empty unused
+  address after it, the path has a hole -- the packet is malformed.
+  Malformed packets are DROPPED.  We do not repeat malformed packets
+  and we do not clean them up.  (The libaprsroute reference routes
+  these and removes the empty slot during rewrite; we deliberately
+  diverge from that behavior.  Conformance case 221.)
 
   Our own callsign in the path at the first unused position is not a
   blocker -- it is treated as a pass-through (the mycall-in-path check

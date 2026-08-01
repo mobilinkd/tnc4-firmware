@@ -249,6 +249,33 @@ TEST(ssid_zero_still_works) {
     passed++;
 }
 
+TEST(malformed_empty_slot_dropped) {
+    // Empty (placeholder) slot at the first unused position, content
+    // after it: the path has a hole -- malformed.  We do not repeat
+    // malformed packets and we do not clean them up; we drop them.
+    // (libaprsroute routes these and removes the empty slot; deliberate
+    // divergence -- conformance case 221.)
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE1", 1);
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,,WIDE1-1:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result == nullptr);
+    passed++;
+}
+
+TEST(malformed_empty_slot_after_match_routes) {
+    // Empty slot AFTER the match (trailing placeholder) is not a hole
+    // before the match -- first unused is the match itself, route.
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE1", 1);
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,WIDE1-1,:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result != nullptr);
+    passed++;
+}
+
 // ============================================================================
 // Disabled-mode stubs: routing modes not implemented in firmware.
 // These exist so the test output shows the gap; no assertion runs.

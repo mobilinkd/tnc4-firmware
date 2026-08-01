@@ -184,7 +184,7 @@ struct DigipeaterCore : Policy
      * WX9O-1 and WX9O-5 are different stations.
      */
     bool match_shifted_callsign(const uint8_t* shifted, const kiss::call_t& call,
-                                bool check_ssid = false)
+                                bool check_ssid = false) const
     {
         for (size_t i = 0; i < 6; i++) {
             char c = shifted[i] >> 1;
@@ -196,6 +196,63 @@ struct DigipeaterCore : Policy
             if (frame_ssid != call.ssid) return false;
         }
         return true;
+    }
+
+    /**
+     * True when a 7-byte path slot is an empty placeholder: all six
+     * callsign bytes are spaces (no callsign).  Such a slot has no
+     * identity and carries no routing information.
+     */
+    static bool is_empty_path_address(const uint8_t* addr)
+    {
+        for (size_t i = 0; i < 6; i++) {
+            if ((addr[i] >> 1) != ' ') return false;
+        }
+        return true;
+    }
+
+    /**
+     * Byte offset of the first unused address in the digipeater path:
+     * the address immediately after the last H-bit-set (used) address.
+     * 14 (start of the path) if no addresses are used.
+     */
+    size_t first_unused_offset() const
+    {
+        size_t p = 14;
+        size_t last_h = 14;  // tracks last H-bit position (start of addr)
+        bool any_h = false;
+        while (p + 7 <= linear_len_) {
+            if (linear_buf_[p + 6] & 0x80) {
+                last_h = p;
+                any_h = true;
+            }
+            if (linear_buf_[p + 6] & 0x01) break;  // C-bit = last addr
+            p += 7;
+        }
+        return any_h ? last_h + 7 : 14;
+    }
+
+    /**
+     * Decision 1 blocking rule, plus the malformed-path policy.
+     *
+     * Returns true when the packet must be dropped: the candidate match
+     * at `pos` is past the first unused position and the address at that
+     * position is either
+     *   - an empty placeholder: the path has a hole (empty slot with
+     *     content after it) -- the packet is malformed.  We do not
+     *     repeat malformed packets and we do not clean them up; we drop
+     *     them.  (The libaprsroute reference routes these and removes
+     *     the empty slot; this is a deliberate divergence.)
+     *   - a real address that is not our own callsign (Decision 1).
+     *
+     * Our own callsign at the first unused position is a pass-through.
+     */
+    bool blocked_by_unused_address(size_t pos, size_t first_unused) const
+    {
+        if (pos <= first_unused) return false;
+        const uint8_t* blocker = linear_buf_.data() + first_unused;
+        if (is_empty_path_address(blocker)) return true;  // malformed path
+        return !match_shifted_callsign(blocker, cfg_.mycall, true);
     }
 
     /**
@@ -355,21 +412,7 @@ struct DigipeaterCore : Policy
         // Compute first_unused: byte offset of the first address after the
         // last H-bit-set (used) address in the path.  If no addresses are
         // used, it's 14 (start of the digipeater path).
-        size_t first_unused = 14;
-        {
-            size_t p = 14;
-            size_t last_h = 14;  // tracks last H-bit position (start of addr)
-            bool any_h = false;
-            while (p + 7 <= linear_len_) {
-                if (linear_buf_[p + 6] & 0x80) {
-                    last_h = p;
-                    any_h = true;
-                }
-                if (linear_buf_[p + 6] & 0x01) break;  // C-bit = last addr
-                p += 7;
-            }
-            if (any_h) first_unused = last_h + 7;
-        }
+        size_t first_unused = first_unused_offset();
 
         // Scan for first unmatched address matching an alias.
         size_t pos = 14;
@@ -388,14 +431,13 @@ struct DigipeaterCore : Policy
                     bool is_nN = is_nN_alias(a.call);
                     if (is_nN) {
                         if (ssid > 0 && ssid <= a.hops) {
-                            // Decision 1: blocking rule.  If the match is
-                            // past the first unused position and the address
-                            // at first_unused is non-empty and is NOT our
-                            // own callsign, drop the packet.
-                            if (pos > first_unused &&
-                                !match_shifted_callsign(
-                                    linear_buf_.data() + first_unused,
-                                    cfg_.mycall, true)) {
+                            // Decision 1 blocking rule + malformed-path
+                            // policy.  If the match is past the first
+                            // unused position and the address at
+                            // first_unused is an empty placeholder
+                            // (malformed path) or a real address that is
+                            // NOT our own callsign, drop the packet.
+                            if (blocked_by_unused_address(pos, first_unused)) {
                                 return nullptr;
                             }
                             match_type_ = MatchType::Alias;
@@ -406,11 +448,8 @@ struct DigipeaterCore : Policy
                             return match_alias_;
                         }
                     } else {
-                        // Decision 1: blocking rule (explicit alias match).
-                        if (pos > first_unused &&
-                            !match_shifted_callsign(
-                                linear_buf_.data() + first_unused,
-                                cfg_.mycall, true)) {
+                        // Decision 1 blocking rule (explicit alias match).
+                        if (blocked_by_unused_address(pos, first_unused)) {
                             return nullptr;
                         }
                         match_type_ = MatchType::Alias;
@@ -481,21 +520,7 @@ struct DigipeaterCore : Policy
             bool found = false;
 
             // Compute first_unused for blocking rule (same as can_repeat).
-            size_t first_unused_fb = 14;
-            {
-                size_t p = 14;
-                size_t last_h = 14;
-                bool any_h = false;
-                while (p + 7 <= linear_len_) {
-                    if (linear_buf_[p + 6] & 0x80) {
-                        last_h = p;
-                        any_h = true;
-                    }
-                    if (linear_buf_[p + 6] & 0x01) break;
-                    p += 7;
-                }
-                if (any_h) first_unused_fb = last_h + 7;
-            }
+            size_t first_unused_fb = first_unused_offset();
 
             size_t pos = 14;
             while (pos + 7 <= linear_len_) {
@@ -510,11 +535,9 @@ struct DigipeaterCore : Policy
                         bool is_nN = is_nN_alias(a.call);
                         if (is_nN) {
                             if (ssid > 0 && ssid <= a.hops) {
-                                // Decision 1: blocking rule.
-                                if (pos > first_unused_fb &&
-                                    !match_shifted_callsign(
-                                        linear_buf_.data() + first_unused_fb,
-                                        cfg_.mycall, true)) {
+                                // Decision 1 blocking rule + malformed-path
+                                // policy (same as can_repeat).
+                                if (blocked_by_unused_address(pos, first_unused_fb)) {
                                     return false;
                                 }
                                 match_addr_offset = pos;
@@ -523,11 +546,8 @@ struct DigipeaterCore : Policy
                                 break;
                             }
                         } else {
-                            // Decision 1: blocking rule (explicit).
-                            if (pos > first_unused_fb &&
-                                !match_shifted_callsign(
-                                    linear_buf_.data() + first_unused_fb,
-                                    cfg_.mycall, true)) {
+                            // Decision 1 blocking rule (explicit alias match).
+                            if (blocked_by_unused_address(pos, first_unused_fb)) {
                                 return false;
                             }
                             match_addr_offset = pos;
