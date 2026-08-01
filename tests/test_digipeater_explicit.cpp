@@ -276,6 +276,57 @@ TEST(malformed_empty_slot_after_match_routes) {
     passed++;
 }
 
+TEST(n_N_reject_N_gt_n_never_routed) {
+    // FIRM REQUIREMENT: N > n is never digipeated.  WIDE2-7 asks for 7
+    // remaining hops through class-2 digis -- either network abuse or a
+    // corrupted packet.  Serving it would give a broken path up to 7
+    // hops of rebroadcast.  Drop it.
+    // (Deliberate divergence from the libaprsroute reference, which
+    // serves any N in 1..7 on a configured class.)
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE2", 2);
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,WIDE2-7:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result == nullptr);
+    passed++;
+}
+
+TEST(n_N_reject_N_gt_n_wide2_3) {
+    // Same rule one step from valid: WIDE2-3 (N=3 > n=2) is not routed.
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE2", 2);
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,WIDE2-3:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result == nullptr);
+    passed++;
+}
+
+TEST(n_N_route_N_eq_n_wide2_2) {
+    // Sanity: N == n (the normal default path) still routes.
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE2", 2);
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,WIDE2-2:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result != nullptr);
+    passed++;
+}
+
+TEST(n_N_reject_N_gt_n_blocks_later_match) {
+    // An N>n address before a valid match poisons the packet: the
+    // blocking rule drops it (WIDE2-7 is a non-empty unused non-mycall
+    // address at the first unused position).
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE2", 2);
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,WIDE2-7,WIDE2-1:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result == nullptr);
+    passed++;
+}
+
 // ============================================================================
 // Disabled-mode stubs: routing modes not implemented in firmware.
 // These exist so the test output shows the gap; no assertion runs.
