@@ -300,29 +300,50 @@ struct DigipeaterCore : Policy
         // Also digipeat frames addressed to our aliases
         for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
             auto& a = cfg_.aliases[i];
-            if (!a.set || !a.use) continue;
-            if (match_shifted_callsign(linear_buf_.data(), a.call)) return true;
+            if (!a.is_configured() || !a.in_use()) continue;
+            if (alias_call_matches(a, linear_buf_.data())) return true;
         }
         return false;
     }
 
     /**
-     * Returns true if the alias callsign matches a known n-N prefix pattern
-     * (WIDE, TRACE, RELAY, ECHO, GATE, TEMP). n-N routing uses SSID as hop
-     * count; explicit routing does not.
+     * True when the 6-character callsign field of a 7-byte AX.25 address at
+     * `addr` matches alias `a`.  The SSID byte is not examined.
+     *
+     * n-N alias: `a.call.callsign` is a routing prefix (e.g. "WIDE"); the
+     * address must be PREFIX + class digit (1..7) with the class's bit set
+     * in the alias's class mask, and any remaining positions must be spaces.
+     * On a match, `class_digit` (when non-null) receives the matched class n.
+     *
+     * Explicit alias: full 6-character callsign equality.
      */
-    static bool is_nN_alias(const kiss::call_t& call)
+    bool alias_call_matches(const kiss::Alias& a, const uint8_t* addr,
+                            uint8_t* class_digit = nullptr) const
     {
-        static const char* nN_prefixes[] = {"WIDE", "TRACE", "RELAY", "ECHO", "GATE", "TEMP"};
-        for (auto prefix : nN_prefixes) {
-            size_t plen = std::strlen(prefix);
-            bool match = true;
-            for (size_t i = 0; i < plen; i++) {
-                if (call.callsign[i] == '\0' || call.callsign[i] != prefix[i]) { match = false; break; }
-            }
-            if (match) return true;
+        if (!a.is_nN()) {
+            return match_shifted_callsign(addr, a.call);
         }
-        return false;
+
+        // Prefix length: the alias callsign up to the first NUL/space.
+        size_t plen = 0;
+        while (plen < 6 && a.call.callsign[plen] != '\0' && a.call.callsign[plen] != ' ')
+            ++plen;
+        if (plen == 0 || plen >= 6) return false;  // no room for a class digit
+
+        for (size_t i = 0; i < plen; i++) {
+            if (static_cast<char>(addr[i] >> 1) != a.call.callsign[i]) return false;
+        }
+
+        char cls_c = static_cast<char>(addr[plen] >> 1);
+        if (cls_c < '1' || cls_c > '7') return false;
+        uint8_t cls = static_cast<uint8_t>(cls_c - '0');
+        if (!(a.class_mask() & (1 << cls))) return false;
+
+        for (size_t i = plen + 1; i < 6; i++) {
+            if ((addr[i] >> 1) != ' ') return false;
+        }
+        if (class_digit) *class_digit = cls;
+        return true;
     }
 
     /**
@@ -423,30 +444,34 @@ struct DigipeaterCore : Policy
 
                 for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
                     auto& a = cfg_.aliases[i];
-                    if (!a.set || !a.use || a.hops == 0) continue;
+                    if (!a.is_configured() || !a.in_use()) continue;
 
-                    if (!match_shifted_callsign(linear_buf_.data() + pos, a.call))
+                    uint8_t cls = 0;
+                    if (!alias_call_matches(a, linear_buf_.data() + pos, &cls))
                         continue;
 
-                    bool is_nN = is_nN_alias(a.call);
-                    if (is_nN) {
-                        if (ssid > 0 && ssid <= a.hops) {
-                            // Decision 1 blocking rule + malformed-path
-                            // policy.  If the match is past the first
-                            // unused position and the address at
-                            // first_unused is an empty placeholder
-                            // (malformed path) or a real address that is
-                            // NOT our own callsign, drop the packet.
-                            if (blocked_by_unused_address(pos, first_unused)) {
-                                return nullptr;
-                            }
-                            match_type_ = MatchType::Alias;
-                            match_addr_offset_ = pos;
-                            match_is_nN_ = true;
-                            match_alias_ = &a;
-                            record_frame(crc);
-                            return match_alias_;
+                    if (a.is_nN()) {
+                        // Decision 7 (ADR-0008): N > n is never digipeated.
+                        // The matched class digit is `cls`; the address's
+                        // remaining-hop count N is `ssid`.  A packet whose N
+                        // exceeds its class (e.g. WIDE2-3) is abuse or
+                        // corruption and is dropped.
+                        if (ssid < 1 || ssid > cls) continue;
+                        // Decision 1 blocking rule + malformed-path
+                        // policy.  If the match is past the first
+                        // unused position and the address at
+                        // first_unused is an empty placeholder
+                        // (malformed path) or a real address that is
+                        // NOT our own callsign, drop the packet.
+                        if (blocked_by_unused_address(pos, first_unused)) {
+                            return nullptr;
                         }
+                        match_type_ = MatchType::Alias;
+                        match_addr_offset_ = pos;
+                        match_is_nN_ = true;
+                        match_alias_ = &a;
+                        record_frame(crc);
+                        return match_alias_;
                     } else {
                         // Decision 1 blocking rule (explicit alias match).
                         if (blocked_by_unused_address(pos, first_unused)) {
@@ -529,22 +554,22 @@ struct DigipeaterCore : Policy
                     uint8_t ssid = (linear_buf_[pos + 6] >> 1) & 0x0F;
                     for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
                         auto& a = cfg_.aliases[i];
-                        if (!a.set || !a.use || a.hops == 0) continue;
-                        if (!match_shifted_callsign(linear_buf_.data() + pos, a.call))
+                        if (!a.is_configured() || !a.in_use()) continue;
+                        uint8_t cls = 0;
+                        if (!alias_call_matches(a, linear_buf_.data() + pos, &cls))
                             continue;
-                        bool is_nN = is_nN_alias(a.call);
-                        if (is_nN) {
-                            if (ssid > 0 && ssid <= a.hops) {
-                                // Decision 1 blocking rule + malformed-path
-                                // policy (same as can_repeat).
-                                if (blocked_by_unused_address(pos, first_unused_fb)) {
-                                    return false;
-                                }
-                                match_addr_offset = pos;
-                                match_is_nN = true;
-                                found = true;
-                                break;
+                        if (a.is_nN()) {
+                            // Decision 7: N > n is never digipeated.
+                            if (ssid < 1 || ssid > cls) continue;
+                            // Decision 1 blocking rule + malformed-path
+                            // policy (same as can_repeat).
+                            if (blocked_by_unused_address(pos, first_unused_fb)) {
+                                return false;
                             }
+                            match_addr_offset = pos;
+                            match_is_nN = true;
+                            found = true;
+                            break;
                         } else {
                             // Decision 1 blocking rule (explicit alias match).
                             if (blocked_by_unused_address(pos, first_unused_fb)) {

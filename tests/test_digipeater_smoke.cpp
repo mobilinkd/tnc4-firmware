@@ -53,14 +53,14 @@ TEST(parse_roundtrip) {
 // ============================================================================
 TEST(can_repeat_wide1_1_match) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("WIDE1", 1);
+    cfg.aliases[0] = make_alias("WIDE", 0x02);
     TestDigipeater digi(cfg);
 
     auto buf = parse_ax25_packet("N0CALL>APRS,WIDE1-1:hello");
     auto result = digi.can_repeat(buf.data(), buf.size());
 
     EXPECT_TRUE(result != nullptr);
-    EXPECT(result->hops == 1, "alias hops should be 1");
+    EXPECT((result->class_mask() & 0x02) != 0, "alias should serve class 1");
     passed++;
 }
 
@@ -69,7 +69,7 @@ TEST(can_repeat_wide1_1_match) {
 // ============================================================================
 TEST(can_repeat_wide2_2_match) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("WIDE2", 2);
+    cfg.aliases[0] = make_alias("WIDE", 0x04);
     TestDigipeater digi(cfg);
 
     auto buf = parse_ax25_packet("N0CALL>APRS,WIDE2-2:hello");
@@ -84,7 +84,7 @@ TEST(can_repeat_wide2_2_match) {
 // ============================================================================
 TEST(can_repeat_reject_self_addressed) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("WIDE1", 1);
+    cfg.aliases[0] = make_alias("WIDE", 0x02);
     TestDigipeater digi(cfg);
 
     auto buf = parse_ax25_packet("N0CALL>DIGI,WIDE1-1:hello");
@@ -99,7 +99,7 @@ TEST(can_repeat_reject_self_addressed) {
 // ============================================================================
 TEST(can_repeat_reject_already_repeated) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("WIDE1", 1);
+    cfg.aliases[0] = make_alias("WIDE", 0x02);
     TestDigipeater digi(cfg);
 
     // DIGI* with H-bit set means we already repeated this
@@ -115,7 +115,7 @@ TEST(can_repeat_reject_already_repeated) {
 // ============================================================================
 TEST(rewrite_wide1_1_substitute) {
     auto cfg = make_test_config("DIGI", 0);  // no routing flags needed
-    cfg.aliases[0] = make_alias("WIDE1", 1);
+    cfg.aliases[0] = make_alias("WIDE", 0x02);
     TestDigipeater digi(cfg);
 
     auto in_buf = parse_ax25_packet("N0CALL>APRS,WIDE1-1:hello");
@@ -141,7 +141,7 @@ TEST(rewrite_wide1_1_substitute) {
 // ============================================================================
 TEST(rewrite_wide2_2_to_wide2_1) {
     auto cfg = make_test_config("DIGI", 0);
-    cfg.aliases[0] = make_alias("WIDE2", 2);
+    cfg.aliases[0] = make_alias("WIDE", 0x04);
     TestDigipeater digi(cfg);
 
     auto in_buf = parse_ax25_packet("N0CALL>APRS,WIDE2-2:hello");
@@ -165,7 +165,7 @@ TEST(rewrite_wide2_2_to_wide2_1) {
 // ============================================================================
 TEST(can_repeat_reject_ssid_zero) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("WIDE2", 2);
+    cfg.aliases[0] = make_alias("WIDE", 0x04);
     TestDigipeater digi(cfg);
 
     auto buf = parse_ax25_packet("N0CALL>APRS,WIDE2-0:hello");
@@ -180,7 +180,7 @@ TEST(can_repeat_reject_ssid_zero) {
 // ============================================================================
 TEST(can_repeat_reject_non_aprs) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("WIDE1", 1);
+    cfg.aliases[0] = make_alias("WIDE", 0x02);
     TestDigipeater digi(cfg);
 
     // Destination "N0CALL" — not an APRS TOCALL

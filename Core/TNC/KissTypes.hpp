@@ -34,12 +34,38 @@ struct call_t {
 };
 static_assert(sizeof(call_t) == 8, "call_t must be 8 bytes for EEPROM compatibility");
 
+/**
+ * A digipeater alias.  Classification (n-N vs explicit) is operator-marked
+ * through the class mask rather than inferred from a prefix list.  See
+ * ADR-0008.
+ *
+ * - n-N alias: the class mask (bits 1-7) is non-zero.  `call.callsign` is
+ *   the routing prefix (e.g. "WIDE"); bit n serves class n (n = 1..7).
+ * - explicit alias: the class mask is zero.  `call` is matched by full
+ *   callsign equality.
+ *
+ * A slot is "configured" when its callsign is non-empty (first byte is
+ * neither NUL nor space).
+ */
 struct Alias {
-    call_t call;                ///< Callsign with SSID.
-    bool set;                   ///< Alias is configured.
-    bool use;                   ///< Use this alias.
-    uint8_t hops;               ///< Hop count remaining
-}; // size = 11
+    call_t call;                ///< Routing prefix (n-N) or full callsign (explicit).
+    uint8_t flags;              ///< bit 0 = use; bits 1-7 = class mask.
+
+    static constexpr uint8_t USE = 0x01;         ///< bit 0: alias is enabled.
+    static constexpr uint8_t CLASS_MASK = 0xFE;  ///< bits 1-7: served classes.
+
+    /// True when the slot is configured (callsign is non-empty).
+    bool is_configured() const {
+        return call.callsign[0] != '\0' && call.callsign[0] != ' ';
+    }
+    /// True when the alias is enabled for use.
+    bool in_use() const { return flags & USE; }
+    /// The class mask: bits 1-7 select which n-N classes (n=1..7) are served.
+    uint8_t class_mask() const { return flags & CLASS_MASK; }
+    /// True when the alias is an n-N alias (serves at least one class).
+    bool is_nN() const { return class_mask() != 0; }
+}; // size = 9
+static_assert(sizeof(Alias) == 9, "Alias must be 9 bytes for EEPROM compatibility");
 
 const size_t BEACON_TEXT_LEN = 128;
 const size_t BEACON_MAX_PATH_ADDRS = 4;
@@ -65,10 +91,10 @@ struct Beacon {
     uint8_t text_len;                       ///< Actual number of bytes in text[].
     uint8_t text[BEACON_TEXT_LEN];          ///< Beacon payload text.
     uint16_t seconds;                       ///< Number of seconds between beacons.
-}; // size = 8 + 1 + 28 + 1 + 1 + 128 + 2 = 169
+}; // size = 8 + 1 + 28 + 1 + 1 + 128 + 2 = 170 (incl. 1 byte padding before seconds)
 
-const size_t NUMBER_OF_ALIASES = 8;     // 80 bytes
-const size_t NUMBER_OF_BEACONS = 4;     // 672 bytes
+const size_t NUMBER_OF_ALIASES = 8;     // 72 bytes (9 each)
+const size_t NUMBER_OF_BEACONS = 4;     // 680 bytes (170 each)
 
 namespace hardware {
 

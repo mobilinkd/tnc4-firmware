@@ -216,13 +216,16 @@ inline std::string ax25_packet_to_string(const std::vector<uint8_t>& buf, size_t
     return ax25_packet_to_string(buf.data(), len);
 }
 
-// Create an alias with NUL-padded callsign
-inline Alias make_alias(const std::string& call, uint8_t hops, bool set = true, bool use = true)
+// Create an alias entry.
+//
+// For an n-N alias, `call` is the routing prefix (e.g. "WIDE") and `classes`
+// is a bitmask of served classes (bit n = class n, n in 1..7).  For an
+// explicit alias, pass `classes = 0` and the full callsign in `call`.
+// `use` enables the alias (Alias::USE).
+inline Alias make_alias(const std::string& call, uint8_t classes = 0, bool use = true)
 {
     Alias a{};
-    a.set = set;
-    a.use = use;
-    a.hops = hops;
+    a.flags = (use ? Alias::USE : 0) | (classes & Alias::CLASS_MASK);
     for (size_t i = 0; i < call.size() && i < 6; i++)
         a.call.callsign[i] = call[i];
     return a;

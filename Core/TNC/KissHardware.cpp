@@ -180,14 +180,12 @@ void ext_reply(const std::array<uint8_t, M>& cmd, const std::array<uint8_t, N>& 
 }
 
 void Hardware::get_alias(uint8_t alias) {
-    uint8_t result[12];
-    if (alias >= NUMBER_OF_ALIASES or not aliases[alias].set) return;
+    uint8_t result[10];
+    if (alias >= NUMBER_OF_ALIASES or not aliases[alias].is_configured()) return;
     result[0] = alias;
     memcpy(result + 1, &aliases[alias].call, sizeof(call_t));
-    result[9] = aliases[alias].set;
-    result[10] = aliases[alias].use;
-    result[11] = aliases[alias].hops;
-    reply_ext(hardware::EXT_GET_ALIASES, result, 12);
+    result[9] = aliases[alias].flags;
+    reply_ext(hardware::EXT_GET_ALIAS, result, 10);
 }
 
 void Hardware::set_alias(hdlc::IoFrame* frame) {
@@ -205,9 +203,7 @@ void Hardware::set_alias(hdlc::IoFrame* frame) {
     for (size_t i = 0; i < sizeof(call_t); i++) {
         call_bytes[i] = *it++;
     }
-    a.set = *it++;
-    a.use = *it++;
-    a.hops = *it;
+    a.flags = *it;
     update_crc();
 }
 
@@ -374,11 +370,11 @@ void Hardware::get_all_digipeater_configs()
 {
     // Response: [ext_cmd(2)] [digipeater_enabled(1)] [routing_mode(1)] [dedupe_seconds(1)]
     //          for each alias (up to NUMBER_OF_ALIASES):
-    //            [index(1)] [call(8)] [set(1)] [use(1)] [hops(1)]
-    // Total: 2 + 3 + 12*8 = 101 bytes max
+    //            [index(1)] [call(8)] [flags(1)]
+    // Total: 2 + 3 + 10*8 = 85 bytes max
 
     constexpr size_t digi_header = 5;  // 2 cmd + 3 settings
-    constexpr size_t alias_size = 12;  // 1 index + 8 call + set + use + hops
+    constexpr size_t alias_size = 10;  // 1 index + 8 call + flags
     constexpr size_t total = digi_header + alias_size * NUMBER_OF_ALIASES;
 
     auto buf = static_cast<uint8_t*>(alloca(total));
@@ -396,9 +392,7 @@ void Hardware::get_all_digipeater_configs()
         buf[pos++] = static_cast<uint8_t>(i);
         std::memcpy(buf + pos, &a.call, sizeof(call_t));
         pos += sizeof(call_t);
-        buf[pos++] = a.set ? 1 : 0;
-        buf[pos++] = a.use ? 1 : 0;
-        buf[pos++] = a.hops;
+        buf[pos++] = a.flags;
     }
 
     ioport->write(buf, pos, 6, osWaitForever);

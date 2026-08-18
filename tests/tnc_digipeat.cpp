@@ -41,7 +41,10 @@ struct Options {
         std::cerr << "Error: " << error << "\n\n";
     }
     std::cerr << "Usage: " << program
-              << " [--mycall CALL] [--alias NAME[,HOPS]]... <input_file>\n";
+              << " [--mycall CALL] [--alias NAME[,CLASSES]]... <input_file>\n"
+              << "  NAME     alias callsign: routing prefix for n-N, full call for explicit\n"
+              << "  CLASSES  optional list of digits 1-7 (e.g. \"12\") selecting the\n"
+              << "           n-N classes to serve; omit for an explicit alias\n";
     std::exit(error.empty() ? 0 : 2);
 }
 
@@ -87,34 +90,29 @@ void validate_call(const std::string& call, const std::string& option)
 Alias parse_alias(const std::string& argument)
 {
     std::string name = argument;
-    unsigned long hops = 2;
+    uint8_t classes = 0;
     const auto comma = argument.find(',');
     if (comma != std::string::npos) {
         if (argument.find(',', comma + 1) != std::string::npos) {
             throw std::runtime_error("invalid alias: " + argument);
         }
         name = argument.substr(0, comma);
-        const std::string hops_text = argument.substr(comma + 1);
-        if (hops_text.empty()) {
-            throw std::runtime_error("missing hop count in alias: " + argument);
+        const std::string classes_text = argument.substr(comma + 1);
+        if (classes_text.empty()) {
+            throw std::runtime_error("missing class list in alias: " + argument);
         }
-        size_t consumed = 0;
-        try {
-            hops = std::stoul(hops_text, &consumed);
-        } catch (const std::exception&) {
-            throw std::runtime_error("invalid hop count in alias: " + argument);
-        }
-        if (consumed != hops_text.size()) {
-            throw std::runtime_error("invalid hop count in alias: " + argument);
+        for (unsigned char c : classes_text) {
+            if (c < '1' || c > '7') {
+                throw std::runtime_error(
+                    "alias class list must contain digits 1-7: " + argument);
+            }
+            classes |= static_cast<uint8_t>(1 << (c - '0'));
         }
     }
 
     name = uppercase(name);
     validate_call(name, "alias");
-    if (hops == 0 || hops > 15) {
-        throw std::runtime_error("alias hop count must be between 1 and 15");
-    }
-    return make_alias(name, static_cast<uint8_t>(hops));
+    return make_alias(name, classes);
 }
 
 Options parse_options(int argc, char** argv)
@@ -154,7 +152,7 @@ Options parse_options(int argc, char** argv)
         usage(argv[0], e.what());
     }
     if (options.aliases.empty()) {
-        options.aliases.push_back(make_alias("WIDE1", 2));
+        options.aliases.push_back(make_alias("WIDE", 0x06));  // WIDE1 + WIDE2
     }
     return options;
 }

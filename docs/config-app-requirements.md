@@ -65,19 +65,27 @@ A callsign with SSID, stored fixed-width for EEPROM compatibility
 
 `static_assert(sizeof(call_t) == 8)`.
 
-### Alias reply (EXT_GET_ALIAS, 12 bytes)
+### Alias reply (EXT_GET_ALIAS, 10 bytes)
 
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | alias index |
 | 1 | 8 | call_t |
-| 9 | 1 | set (0/1) |
-| 10 | 1 | use (0/1) |
-| 11 | 1 | hops (1-15) |
+| 9 | 1 | flags |
 
-### Alias request (EXT_SET_ALIAS, 12 bytes)
+### Alias request (EXT_SET_ALIAS, 10 bytes)
 
-Same layout as the reply: index (1) + call_t (8) + set (1) + use (1) + hops (1).
+Same layout as the reply: index (1) + call_t (8) + flags (1).
+
+`flags` encodes two things (see ADR-0008):
+
+- **bit 0** — `use`: the alias is enabled.
+- **bits 1-7** — class mask: bit *n* selects n-N class *n* (n = 1..7).
+
+A non-zero class mask marks the alias as n-N (the callsign is a routing
+prefix, e.g. `WIDE`); a zero class mask marks it explicit (full-callsign
+match).  A slot is configured when its callsign is non-empty; there is no
+separate `set` flag.
 
 ### Digipeater settings (3 bytes)
 
@@ -120,10 +128,10 @@ Single response containing the digipeater settings followed by every alias:
 [0xC1][0x90]
 [enabled(1)][routing_mode(1)][dedupe_seconds(1)]
 for each of NUMBER_OF_ALIASES (8):
-    [index(1)][call_t(8)][set(1)][use(1)][hops(1)]   = 12 bytes
+    [index(1)][call_t(8)][flags(1)]   = 10 bytes
 ```
 
-Total: 2 + 3 + 8×12 = 101 bytes.
+Total: 2 + 3 + 8×10 = 85 bytes.
 
 ### EXT_GET_ALL_BEACON_CONFIGS (0xC1 0x91)
 

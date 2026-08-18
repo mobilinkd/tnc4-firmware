@@ -62,51 +62,6 @@ static void normalize_to_display_convention(std::vector<uint8_t>& frame)
     }
 }
 
-// Expand a generic n-N alias call (e.g. "WIDE") into the specific call
-// that appears in the path (e.g. "WIDE1", "WIDE2", "WIDE8").  The gen
-// script that produced test_routes_data.hpp stripped the digit suffix
-// off of n-N alias names, but the firmware's exact-match comparator
-// (match_shifted_callsign) requires the full 6-char call to match.
-// We recover the suffix by scanning the path for the first token that
-// begins with the prefix.
-//
-// Returns the original call unchanged if no expansion is needed/possible.
-static std::string expand_nN_alias(const std::string& call,
-                                    const char* original_packet,
-                                    bool is_nN)
-{
-    if (!is_nN || call.empty()) return call;
-    // Already 5+ chars: assume it's a specific call (WIDE1, WIDE2, ...).
-    if (call.size() >= 5) return call;
-    if (!original_packet) return call;
-
-    // Parse path out of original_packet
-    auto gt = std::strchr(original_packet, '>');
-    auto colon = std::strchr(original_packet, ':');
-    if (!gt || !colon || colon <= gt) return call;
-    std::string path(gt + 1, colon);
-
-    // Walk path tokens, find the first one starting with `call`.
-    size_t pos = 0;
-    while (pos < path.size()) {
-        size_t comma = path.find(',', pos);
-        std::string token = path.substr(pos, comma - pos);
-        if (!token.empty() && token.back() == '*') token.pop_back();
-        // Strip SSID
-        auto dash = token.find('-');
-        std::string token_call = (dash != std::string::npos)
-            ? token.substr(0, dash) : token;
-        // Check prefix match
-        if (token_call.size() >= call.size() &&
-            token_call.compare(0, call.size(), call) == 0) {
-            return token_call;  // Return the full call from the path
-        }
-        if (comma == std::string::npos) break;
-        pos = comma + 1;
-    }
-    return call;  // No expansion found
-}
-
 // Check whether a byte-level mismatch on a routed vector is a KNOWN
 // divergence caused by the firmware's hardcoded n-N substitution behavior
 // (commit 9ea1197) rather than an unexpected failure.
@@ -175,6 +130,45 @@ static bool first_unused_slot_is_empty(const std::vector<uint8_t>& frame)
     return false;
 }
 
+// Decision 7 (ADR-0008) divergence: a packet whose first unused address is
+// an n-N address with remaining-hop N greater than its class digit n
+// (e.g. WIDE2-3).  The firmware drops it; the libaprsroute reference routes
+// it.  Deliberate policy divergence.
+static bool first_unused_nN_exceeds_class(const std::vector<uint8_t>& frame,
+                                          const TestConfig& cfg)
+{
+    size_t pos = 14;
+    while (pos + 7 <= frame.size()) {
+        if (!(frame[pos + 6] & 0x80)) {  // first unused address
+            uint8_t ssid = (frame[pos + 6] >> 1) & 0x0F;
+            for (const auto& a : cfg.aliases) {
+                if (!a.is_configured() || !a.is_nN()) continue;
+                size_t plen = 0;
+                while (plen < 6 && a.call.callsign[plen] != '\0' &&
+                       a.call.callsign[plen] != ' ')
+                    ++plen;
+                if (plen == 0 || plen >= 6) continue;
+                bool pmatch = true;
+                for (size_t i = 0; i < plen; i++) {
+                    if (static_cast<char>(frame[pos + i] >> 1) != a.call.callsign[i]) {
+                        pmatch = false;
+                        break;
+                    }
+                }
+                if (!pmatch) continue;
+                char d = static_cast<char>(frame[pos + plen] >> 1);
+                if (d < '1' || d > '7') continue;
+                uint8_t cls = static_cast<uint8_t>(d - '0');
+                if ((a.class_mask() & (1 << cls)) && ssid > cls) return true;
+            }
+            return false;
+        }
+        if (frame[pos + 6] & 0x01) break;
+        pos += 7;
+    }
+    return false;
+}
+
 // Check whether a vector's options string contains any routing mode that
 // the firmware does NOT implement.  The data's has_unsupported flag is
 // unreliable (many unsupported vectors have has_unsupported=false), so
@@ -229,23 +223,12 @@ static std::string run_conf_route(const ConfRoute& r,
     // Build config
     auto cfg = make_test_config(r.address, r.routing_mode);
 
-    // Add aliases.  Expand generic n-N prefixes (e.g. "WIDE") to the
-    // specific call (e.g. "WIDE1") found in the original path, since
-    // the firmware's match_shifted_callsign requires full-call equality.
-    //
-    // For n-N aliases, force hops=7.  The gen script emits hops=0 or
-    // hops=1 for n-N entries, but the reference does NOT filter by
-    // hops -- it accepts any SSID > 0 on an n-N alias.  Our firmware
-    // checks (ssid <= alias.hops), so we must set hops high enough to
-    // accept all valid SSIDs (max AX.25 SSID is 15, but n-N uses 1-7).
+    // Add aliases.  The generated data already carries the class mask for
+    // n-N aliases (bit n = class n) and 0 for explicit aliases (ADR-0008).
     for (uint8_t i = 0; i < r.alias_count; i++) {
         auto& a = r.aliases[i];
-        if (a.call) {
-            std::string expanded = expand_nN_alias(
-                std::string(a.call), r.original_packet, a.is_nN);
-            uint8_t hops = a.is_nN ? 7 : a.hops;
-            cfg.aliases[i] = make_alias(expanded, hops);
-        }
+        if (!a.call) continue;
+        cfg.aliases[i] = make_alias(std::string(a.call), a.classes);
     }
 
     TestDigipeater digi(cfg);
@@ -272,6 +255,14 @@ static std::string run_conf_route(const ConfRoute& r,
         // hole during rewrite).  We drop it as malformed.  Deliberate.
         if (!we_routed && r.routed && first_unused_slot_is_empty(in)) {
             out_actual_str = "not routed (malformed: empty path slot)";
+            out_expected_str = r.routed ? "routed" : "not routed";
+            return "DIVERGENCE";
+        }
+        // N > n policy divergence (Decision 7, ADR-0008): the reference
+        // routes a packet whose first unused n-N address has N > class n
+        // (e.g. WIDE2-3).  We drop it as abuse/corruption.  Deliberate.
+        if (!we_routed && r.routed && first_unused_nN_exceeds_class(in, cfg)) {
+            out_actual_str = "not routed (N > n)";
             out_expected_str = r.routed ? "routed" : "not routed";
             return "DIVERGENCE";
         }

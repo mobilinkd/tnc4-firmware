@@ -168,8 +168,8 @@ constexpr std::array<uint8_t, 2> EXT_SET_MODEM_TYPE = {0xC1, 0x82};
 constexpr std::array<uint8_t, 2> EXT_GET_MODEM_TYPES = {0xC1, 0x83};    ///< Return a list of supported modem types
 
 constexpr std::array<uint8_t, 2> EXT_GET_ALIASES = {0xC1, 0x88};        ///< Number of aliases supported
-constexpr std::array<uint8_t, 2> EXT_GET_ALIAS = {0xC1, 0x89};          ///< Alias number (uint8_t), 8 chars, 3 bytes (set, use, hops)
-constexpr std::array<uint8_t, 2> EXT_SET_ALIAS = {0xC1, 0x8A};          ///< Alias number (uint8_t), 8 chars, 3 bytes (set, use, hops)
+constexpr std::array<uint8_t, 2> EXT_GET_ALIAS = {0xC1, 0x89};          ///< Alias number (uint8_t), 8 chars, 1 byte flags (bit 0 = use, bits 1-7 = class mask)
+constexpr std::array<uint8_t, 2> EXT_SET_ALIAS = {0xC1, 0x8A};          ///< Alias number (uint8_t), 8 chars, 1 byte flags (bit 0 = use, bits 1-7 = class mask)
 
 constexpr std::array<uint8_t, 2> EXT_GET_DIGIPEATER = {0xC1, 0x8B};     ///< Get digipeater settings (5 bytes)
 constexpr std::array<uint8_t, 2> EXT_SET_DIGIPEATER = {0xC1, 0x8F};     ///< Set digipeater settings (5 bytes)
@@ -350,10 +350,10 @@ struct Hardware
         TNC_DEBUG("Routing mode: 0x%02x", (int)routing_mode);
         TNC_DEBUG("Aliases:");
         for (auto& a : aliases) {
-            if (!a.set) continue;
+            if (!a.is_configured()) continue;
             TNC_DEBUG(" call: %.*s-%d", (int)a.call.callsign.size(), a.call.callsign.data(), (int)a.call.ssid);
-            TNC_DEBUG(" use: %d", (int)a.use);
-            TNC_DEBUG(" hops: %d", (int)a.hops);
+            TNC_DEBUG(" use: %d", (int)a.in_use());
+            TNC_DEBUG(" class mask: 0x%02x", (int)a.class_mask());
         }
         TNC_DEBUG("Beacons:");
         for (auto& b : this->beacons) {
@@ -401,7 +401,8 @@ struct Hardware
 
     void announce_input_settings();
 
-}; // 804 bytes
+}; // 784 bytes (see static_assert below)
+static_assert(sizeof(Hardware) == 784, "Hardware layout changed -- update config app and EEPROM migration");
 
 extern Hardware& settings();
 
