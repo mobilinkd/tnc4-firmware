@@ -91,6 +91,23 @@ generator unrepresentable marking; 2 new hand-written explicit vectors raise
 the explicit suite to 26 passed).  The "92/14/36/114" unchanged target in the
 section-1 DoD is superseded by this corrected delta.
 
+## 1.5 Firmware requirement: set-alias must reject unrepresentable n-N aliases
+
+New requirement (2026-08-18): the KISS `EXT_SET_ALIAS` command must zero the
+config byte (the `flags` byte: bit 0 = use, bits 1-7 = class mask) when it
+sets an n-bit on a 6-character callsign.  A 6-character prefix leaves no room
+for the n-N class digit (`PREFIXn` needs 7 wire characters), so such an alias
+is unrepresentable -- the same condition that makes conformance cases 169/170
+SKIP at the generator level.  The matcher already refuses to match such a
+prefix (ADR-0008, `plen >= 6`), but the invalid config must not be *stored*
+as in-use either.
+
+Implemented in `KissHardware.cpp` `set_alias()` via a new
+`Alias::is_unrepresentable_nN()` predicate in KissTypes.hpp
+(`class_mask() != 0 && callsign_len() == 6`), covered by three explicit tests
+(`alias_unrepresentable_nN_6char_prefix`, `alias_representable_nN_short_prefix`,
+`alias_explicit_never_unrepresentable`).
+
 ## 2. Deficiency analysis -- what the failures reveal
 
 Re-derived from the reference source (aprsroute.hpp try_explicit_route /
@@ -215,8 +232,22 @@ NOT covered (must be added, per section 1-2):
    no firmware impact. Prerequisite for everything else.
    Includes: encode_call SSID range check; SKIP-marking for 6-char
    prefix n-N aliases; regression check (totals unchanged).
-2. **Self-routing** (deficiency A, 17 cases) -- add mycall-as-route-target
-   in the scan (can_repeat + rewrite).  Largest single win.
+2. **Self-routing** (deficiency A) -- DONE (commit follows).  Added
+   mycall-as-route-target in the scan.  Closed 18 cases: the 17 failing
+   cases (76-83, 84, 85, 89, 90, 94, 102, 147, 201, 215) PLUS the
+   diverging case 87 (`DIGI,WIDE1-1` -> `DIGI*,WIDE1-1`), and 107.
+   Implementation notes:
+   - Self-routing = first-unused address equals mycall (SSID-aware) ->
+     mark H-bit, no insert (pass-through).  rewrite_frame already handled
+     the "matched is mycall" path; only can_repeat needed the match.
+   - The mycall-in-path guard now uses "first address after the last used
+     address" (was "first unmarked from offset 14"), matching the
+     reference's find_unused_router_address_index.  This also fixed 107.
+   - Self-routing is suppressed when the last-used address matches a
+     configured explicit alias (marked first-match suppresses; cases
+     58/59/95).  58 and 95 fixed.  59 surfaced as a genuine deficiency-B
+     case (was passing by accident via the old guard's over-rejection) --
+     it is the same "first marked match suppresses" rule as 105/107.
 3. **Explicit-alias routing** (deficiency B, 9 cases + D, 1 case):
    SSID-sensitive match + require-unmarked + insert-before/mark;
    mycall-in-path guard re-examined for explicit routing (91);

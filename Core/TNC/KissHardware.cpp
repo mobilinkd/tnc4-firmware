@@ -204,6 +204,14 @@ void Hardware::set_alias(hdlc::IoFrame* frame) {
         call_bytes[i] = *it++;
     }
     a.flags = *it;
+    // Requirement (2026-08-18): an n-N alias whose prefix fills the whole
+    // 6-character callsign field is unrepresentable on the wire -- the class
+    // digit needs a 7th character.  ADR-0008's matcher already refuses to
+    // match such a prefix (plen >= 6), but the invalid configuration must
+    // not be stored as in-use either.  Zero the config byte (USE + class
+    // mask) so the slot is disabled rather than matching nothing while
+    // reporting as configured.
+    if (a.is_unrepresentable_nN()) a.flags = 0;
     update_crc();
 }
 

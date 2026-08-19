@@ -400,6 +400,80 @@ TEST(classification_wide_operator_explicit) {
 }
 
 // ============================================================================
+// Self-routing (deficiency A): when the first unused path address is our own
+// callsign (SSID-aware), digipeat it -- mark the H-bit, no insert (it is
+// already ours).  Positive coverage for conformance cases 76-83, 84, 85, 89,
+// 90, 94, 102, 147, 201, 215.
+// ============================================================================
+
+TEST(self_route_mycall_first_unused_marks_only) {
+    // mycall == first unused address -> mark, no insert/duplicate.
+    auto cfg = make_test_config("ROUTER", 0);
+    TestDigipeater digi(cfg);
+    auto in_buf = parse_ax25_packet("DIGI>APRS,ROUTER:data");
+    auto match = digi.can_repeat(in_buf.data(), in_buf.size());
+    EXPECT_TRUE(match != nullptr);
+
+    std::array<uint8_t, 330> out{};
+    size_t len = 0;
+    EXPECT_TRUE(digi.rewrite_frame(in_buf.data(), in_buf.size(), out.data(), len, out.size()));
+    auto str = ax25_packet_to_string(out.data(), len);
+    EXPECT_TRUE(str.find("DIGI>APRS,ROUTER*") != std::string::npos);
+    EXPECT_TRUE(str.find("ROUTER,ROUTER") == std::string::npos);  // no duplicate insert
+    passed++;
+}
+
+TEST(self_route_mycall_ssid_aware) {
+    // mycall DIGI1-1 (SSID 1) matches DIGI1-1 at first unused.
+    auto cfg = make_test_config("DIGI1-1", 0);
+    TestDigipeater digi(cfg);
+    auto in_buf = parse_ax25_packet("N0CALL>APRS,DIGI1-1:data");
+    auto match = digi.can_repeat(in_buf.data(), in_buf.size());
+    EXPECT_TRUE(match != nullptr);
+    std::array<uint8_t, 330> out{};
+    size_t len = 0;
+    EXPECT_TRUE(digi.rewrite_frame(in_buf.data(), in_buf.size(), out.data(), len, out.size()));
+    auto str = ax25_packet_to_string(out.data(), len);
+    EXPECT_TRUE(str.find("DIGI1-1*") != std::string::npos);
+    passed++;
+}
+
+TEST(self_route_does_not_fire_for_wrong_ssid) {
+    // mycall DIGI1-1; path address DIGI1-2 (SSID 2) is a different station.
+    // No alias configured -> no route.
+    auto cfg = make_test_config("DIGI1-1", 0);
+    TestDigipeater digi(cfg);
+    auto in_buf = parse_ax25_packet("N0CALL>APRS,DIGI1-2:data");
+    EXPECT_TRUE(digi.can_repeat(in_buf.data(), in_buf.size()) == nullptr);
+    passed++;
+}
+
+// ============================================================================
+// Alias representability (requirement 2026-08-18): an n-N alias whose prefix
+// fills the whole 6-character callsign field is unrepresentable on the wire.
+// The KISS set-alias command zeroes the config byte for such an alias.
+// ============================================================================
+
+TEST(alias_unrepresentable_nN_6char_prefix) {
+    auto a = make_alias("FOOBAR", 0x04);  // n-N class 2, 6-char prefix
+    EXPECT_TRUE(a.is_unrepresentable_nN());
+    EXPECT_TRUE(a.callsign_len() == 6);
+    passed++;
+}
+
+TEST(alias_representable_nN_short_prefix) {
+    auto a = make_alias("WIDE", 0x04);    // 4-char prefix fits WIDE2
+    EXPECT_FALSE(a.is_unrepresentable_nN());
+    passed++;
+}
+
+TEST(alias_explicit_never_unrepresentable) {
+    auto a = make_alias("CALLD", 0);      // explicit, mask 0
+    EXPECT_FALSE(a.is_unrepresentable_nN());
+    passed++;
+}
+
+// ============================================================================
 // Disabled-mode stubs: routing modes not implemented in firmware.
 // These exist so the test output shows the gap; no assertion runs.
 // ============================================================================

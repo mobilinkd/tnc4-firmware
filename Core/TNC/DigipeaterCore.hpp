@@ -72,11 +72,19 @@ struct DigipeaterCore : Policy
     enum class MatchType : uint8_t {
         None = 0,           // No match yet.
         Alias = 1,          // Normal first-unmatched alias match.
+        Mycall = 2,         // Self-routing: first-unused address is our own callsign.
     };
     MatchType match_type_ = MatchType::None;
     size_t match_addr_offset_ = 0;     // Linear-buffer offset of the matched addr.
     bool match_is_nN_ = false;         // True if matched alias is an n-N prefix.
     const kiss::Alias* match_alias_ = nullptr;  // Set only for Alias matches.
+
+    // Non-null sentinel returned by can_repeat() when the match is
+    // self-routing (the first-unused address is our own callsign) rather
+    // than a configured alias.  Zero-initialized: not configured, not in
+    // use, no class mask.  Callers that inspect the returned alias must
+    // treat a pointer equal to &self_route_sentinel_ as "no alias matched".
+    inline static kiss::Alias self_route_sentinel_{};
 
     explicit DigipeaterCore(const Config& cfg)
     : cfg_(cfg)
@@ -347,6 +355,25 @@ struct DigipeaterCore : Policy
     }
 
     /**
+     * True when the 7-byte address at `addr` matches any configured, in-use
+     * explicit (non-n-N) alias.  Used to suppress self-routing when the
+     * reference's first-match-from-last-used search would terminate on a
+     * marked explicit alias instead of our own callsign (cases 58/59/95).
+     *
+     * Note: SSID-insensitive, matching the current explicit-alias matcher.
+     * The reference compares SSID too; that tightening is deficiency-B work.
+     */
+    bool explicit_alias_matches(const uint8_t* addr) const
+    {
+        for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
+            const auto& a = cfg_.aliases[i];
+            if (!a.is_configured() || !a.in_use() || a.is_nN()) continue;
+            if (alias_call_matches(a, addr)) return true;
+        }
+        return false;
+    }
+
+    /**
      * Encode our callsign (mycall) as a 7-byte AX.25 shifted address block.
      * The SSID byte is set with H-bit (bit 7) to mark "has been repeated".
      *
@@ -408,19 +435,20 @@ struct DigipeaterCore : Policy
 
         // Don't digipeat if our callsign already appears in the path.
         // If H-bit set: already processed, reject.
-        // If no H-bit but not at the first unmatched position: would create a
+        // If no H-bit but not at the first unused position: would create a
         // duplicate, reject.  (Preemptive routing is not supported.)
         size_t path_end = 14;
         while (path_end + 7 <= linear_len_) {
             if (match_shifted_callsign(linear_buf_.data() + path_end, cfg_.mycall, true)) {
                 bool repeated = (linear_buf_[path_end + 6] & 0x80) != 0;
                 if (repeated) return nullptr;
-                size_t first_unmatched = 14;
-                while (first_unmatched <= path_end) {
-                    if (!(linear_buf_[first_unmatched + 6] & 0x80)) break;
-                    first_unmatched += 7;
-                }
-                if (first_unmatched != path_end) return nullptr;
+                // The current digipeater position is the first address after
+                // the last used (H-bit) address.  Our callsign at any other
+                // unmarked position means the frame would be routed through
+                // us a second time -> reject.  This matches the reference's
+                // find_unused_router_address_index, which searches from the
+                // last used address and ignores unmarked addresses before it.
+                if (path_end != first_unused_offset()) return nullptr;
             }
             if (linear_buf_[path_end + 6] & 0x01) break;
             path_end += 7;
@@ -434,6 +462,32 @@ struct DigipeaterCore : Policy
         // last H-bit-set (used) address in the path.  If no addresses are
         // used, it's 14 (start of the digipeater path).
         size_t first_unused = first_unused_offset();
+
+        // Self-routing (deficiency A): when the first unused address is our
+        // own callsign (SSID-aware), digipeat it -- mark the H-bit and do
+        // NOT insert (it is already our own address).  The reference's
+        // find_unused_router_address_index matches the router address itself.
+        //
+        // The reference searches from the LAST USED address and returns the
+        // FIRST match of (mycall OR explicit alias); a marked first match
+        // terminates the search with "no route".  So self-routing is
+        // suppressed when the last-used address (first_unused - 7) matches a
+        // configured explicit alias: that marked alias is the first match,
+        // not our own callsign (conformance cases 58/59/95).  The
+        // first_unused < find_info_offset() guard skips the degenerate case
+        // where every address is already used.
+        if (first_unused < find_info_offset() &&
+            match_shifted_callsign(linear_buf_.data() + first_unused,
+                                   cfg_.mycall, true) &&
+            !(first_unused > 14 &&
+              explicit_alias_matches(linear_buf_.data() + first_unused - 7))) {
+            match_type_ = MatchType::Mycall;
+            match_addr_offset_ = first_unused;
+            match_is_nN_ = false;
+            match_alias_ = nullptr;
+            record_frame(crc);
+            return &self_route_sentinel_;
+        }
 
         // Scan for first unmatched address matching an alias.
         size_t pos = 14;

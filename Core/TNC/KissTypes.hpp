@@ -64,6 +64,20 @@ struct Alias {
     uint8_t class_mask() const { return flags & CLASS_MASK; }
     /// True when the alias is an n-N alias (serves at least one class).
     bool is_nN() const { return class_mask() != 0; }
+    /// Number of leading non-space, non-NUL characters in the callsign field.
+    uint8_t callsign_len() const {
+        uint8_t n = 0;
+        while (n < 6 && call.callsign[n] != '\0' && call.callsign[n] != ' ')
+            ++n;
+        return n;
+    }
+    /// True when this alias is unrepresentable on the wire: an n-N alias
+    /// whose routing prefix fills all 6 callsign positions, leaving no room
+    /// for the class digit (PREFIXn needs 7 wire characters).  The KISS
+    /// set-alias command must zero the config byte for such an alias.
+    bool is_unrepresentable_nN() const {
+        return is_nN() && callsign_len() == 6;
+    }
 }; // size = 9
 static_assert(sizeof(Alias) == 9, "Alias must be 9 bytes for EEPROM compatibility");
 

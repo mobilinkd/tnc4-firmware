@@ -141,3 +141,8 @@ does this; classification is the operator's to mark.
 - The `Hardware` EEPROM image shrinks by 16 bytes; a stored image from
   this unreleased branch fails CRC on load and resets to defaults, which
   is accepted.
+- An n-N alias whose routing prefix fills all 6 callsign positions is
+  unrepresentable on the wire (no room for the class digit, which would
+  need a 7th character).  `EXT_SET_ALIAS` therefore zeroes the config byte
+  (`flags`: use bit + class mask) for such an alias, so the invalid slot is
+  not stored as in-use (requirement 2026-08-18).
