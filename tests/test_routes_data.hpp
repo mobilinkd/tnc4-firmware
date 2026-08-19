@@ -19,6 +19,7 @@ struct ConfRoute {
     bool routed;
     uint8_t routing_mode;
     bool has_unsupported;
+    bool unrepresentable;  // n-N prefix too long for AX.25 callsign field
     const char* options_str;
     std::array<AliasEntry, 8> aliases;
     uint8_t alias_count;
@@ -28,7 +29,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "1", "CALLD", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD:data", "N0CALL>APRS,CALLD*,CALLA,CALLB,CALLC:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -44,7 +45,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "2", "CALLE", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLE*,CALLC,CALLD,CALLF:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -60,7 +61,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "3", "CALLD", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,CALLE:data", "N0CALL>APRS,CALLD*,CALLE:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -76,7 +77,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "4", "CALLE", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLE*,CALLF:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -92,7 +93,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "5", "CALLE", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD*,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,CALLE*,CALLF:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -108,7 +109,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "6", "CALLE", "N0CALL>APRS,CALLA*,CALLB*,CALLC*,CALLD*,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,CALLE*,CALLF:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -124,7 +125,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "7", "DIGI", "N0CALL>APRS,CALLA*,CALLB*,CALLC*,CALLD*,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,DIGI,CALLE*,CALLF:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"CALLE", 0x00},
             {nullptr, 0x00},
@@ -140,7 +141,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "8", "DIGI", "N0CALL>APRS,CALLA*,CALLB*,CALLC*,CALLD*,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,DIGI*,CALLF:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"CALLE", 0x00},
             {nullptr, 0x00},
@@ -156,7 +157,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "9", "DIGI", "N0CALL>APRS,CALLA*,CALLB,CALLC*,CALLD*,CALLE,CALLF:data", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,DIGI*,CALLF:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"CALLE", 0x00},
             {nullptr, 0x00},
@@ -172,7 +173,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "10", "CALLB", "N0CALL>APRS,CALLA,CALLB:data", "N0CALL>APRS,CALLB*,CALLA:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -188,7 +189,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "11", "", "N0CALL>APRS,CALLA,CALLB:data", "N0CALL>APRS,CALLA,CALLB:data",
         false, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -204,7 +205,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "12", "CITYD", "N0CALL>APRS,CITYA*,CITYB,CITYC,CITYD,CITYE:data", "N0CALL>APRS,CITYD*,CITYE:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -220,7 +221,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "13", "DIGI", "N0CALL>APRS,CALLA,CALLB:data", "N0CALL>APRS,DIGI,CALLB*,CALLA:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -236,7 +237,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "14", "DIGI", "N0CALL>APRS,CALLA,CALLB:data", "N0CALL>APRS,DIGI*,CALLA:data",
         true, 0x11,
-        false, "preempt_front,substitute_explicit_address",
+        false, false, "preempt_front,substitute_explicit_address",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -252,7 +253,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "15", "DIGI", "N0CALL>APRS,CALLA,CALLB:data", "N0CALL>APRS,DIGI,CALLB*:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -268,7 +269,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "16", "DIGI", "N0CALL>APRS,CALLA,CALLB:data", "N0CALL>APRS,DIGI*:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -284,7 +285,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "17", "DIGI", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD:data", "N0CALL>APRS,DIGI,CALLB*,CALLA,CALLC,CALLD:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -300,7 +301,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "18", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,CALLA,CALLB,DIGI,CALLD*,CALLC,CALLE,CALLF,CALLG:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALLD", 0x00},
             {nullptr, 0x00},
@@ -316,7 +317,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "19", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,CALLA,CALLB,DIGI*,CALLC,CALLE,CALLF,CALLG:data",
         true, 0x11,
-        false, "preempt_front,substitute_explicit_address",
+        false, false, "preempt_front,substitute_explicit_address",
         {{
             {"CALLD", 0x00},
             {nullptr, 0x00},
@@ -332,7 +333,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "20", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,CALLA,CALLB,DIGI,CALLD*,CALLE,CALLF,CALLG:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"CALLD", 0x00},
             {nullptr, 0x00},
@@ -348,7 +349,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "21", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,CALLA,CALLB,DIGI*,CALLE,CALLF,CALLG:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"CALLD", 0x00},
             {nullptr, 0x00},
@@ -364,7 +365,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "22", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,CALLA,CALLB,DIGI,CALLC*,CALLD,CALLE,CALLF,CALLG:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"CALLC", 0x00},
             {nullptr, 0x00},
@@ -380,7 +381,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "23", "DIGI", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,DIGI,CALLC*,CALLD,CALLE,CALLF,CALLG:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"CALLC", 0x00},
             {nullptr, 0x00},
@@ -396,7 +397,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "24", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,CALLA,CALLB,DIGI,CALLC*,CALLD,CALLE,CALLF,CALLG:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALLC", 0x00},
             {nullptr, 0x00},
@@ -412,7 +413,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "25", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,DIGI,CALLC*,CALLD,CALLE,CALLF,CALLG:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"CALLC", 0x00},
             {nullptr, 0x00},
@@ -428,7 +429,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "26", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,DIGI,CALLG*:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"CALLG", 0x00},
             {nullptr, 0x00},
@@ -444,7 +445,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "27", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,DIGI*:data",
         true, 0x14,
-        false, "preempt_drop,substitute_explicit_address",
+        false, false, "preempt_drop,substitute_explicit_address",
         {{
             {"CALLG", 0x00},
             {nullptr, 0x00},
@@ -460,7 +461,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "28", "DIGI", "N0CALL>APRS,CALLA,CALLB,CALLC,CALLD,CALLE,CALLF,CALLG,CALLH:data", "N0CALL>APRS,DIGI*,CALLB,CALLC,CALLD,CALLE,CALLF,CALLG,CALLH:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"CALLA", 0x00},
             {nullptr, 0x00},
@@ -476,7 +477,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "29", "DIGI", "N0CALL>APRS,CALLA,CALLB*,CALLC,CALLD,CALLE,CALLF,CALLG:data", "N0CALL>APRS,DIGI,CALLD*,CALLE,CALLF,CALLG:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"CALLD", 0x00},
             {nullptr, 0x00},
@@ -492,7 +493,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "30", "H", "N0CALL>APRS,A,B,C,D,E,F,G,H:data", "N0CALL>APRS,H*,A,B,C,D,E,F,G:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -508,7 +509,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "31", "H", "N0CALL>APRS,A,B,C,D,E,F,G,H:data", "N0CALL>APRS,H*:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -524,7 +525,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "32", "H", "N0CALL>APRS,A,B,C,D,E,F,G*,H:data", "N0CALL>APRS,A,B,C,D,E,F,G,H*:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -540,7 +541,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "33", "H", "N0CALL>APRS,A,B,C,D,E,F,G,H,I:data", "N0CALL>APRS,A,B,C,D,E,F,G,H,I:data",
         false, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -556,7 +557,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "34", "H", "N0CALL>APRS,A,B,C,D,E,F,G,H*:data", "N0CALL>APRS,A,B,C,D,E,F,G,H*:data",
         false, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -572,7 +573,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "35", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,DIGI:data", "N0CALL>APRS,A,B,C,D,E,F,G,DIGI*:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -588,7 +589,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "36", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,H:data", "N0CALL>APRS,A,B,C,D,E,F,G,DIGI*:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"H", 0x00},
             {nullptr, 0x00},
@@ -604,7 +605,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "37", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G,H:data", "N0CALL>APRS,DIGI*,B,C,D,E,F,G,H:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -620,7 +621,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "38", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI,A*,B,C,D,E,F,G:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -636,7 +637,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "39", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI,A*,B,C,D,E,F,G:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -652,7 +653,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "40", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI,A*,B,C,D,E,F,G:data",
         true, 0x08,
-        false, "preempt_mark",
+        false, false, "preempt_mark",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -668,7 +669,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "41", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI,A*,B,C,D,E,F,G:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -684,7 +685,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "42", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI*,B,C,D,E,F,G:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -700,7 +701,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "43", "DIGI", "N0CALL>APRS,A,B*,C,D,E,F,G:data", "N0CALL>APRS,A,B,DIGI*,D,E,F,G:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"C", 0x00},
             {nullptr, 0x00},
@@ -716,7 +717,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "44", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI*,A,B,D,E,F,G:data",
         true, 0x11,
-        false, "substitute_explicit_address,preempt_front",
+        false, false, "substitute_explicit_address,preempt_front",
         {{
             {"C", 0x00},
             {nullptr, 0x00},
@@ -732,7 +733,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "45", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI*,D,E,F,G:data",
         true, 0x14,
-        false, "substitute_explicit_address,preempt_drop",
+        false, false, "substitute_explicit_address,preempt_drop",
         {{
             {"C", 0x00},
             {nullptr, 0x00},
@@ -748,7 +749,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "46", "DIGI", "N0CALL>APRS,A*,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI*,D,E,F,G:data",
         true, 0x14,
-        false, "substitute_explicit_address,preempt_drop",
+        false, false, "substitute_explicit_address,preempt_drop",
         {{
             {"C", 0x00},
             {nullptr, 0x00},
@@ -764,7 +765,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "47", "DIGI", "N0CALL>APRS,A*,B,C,D,E,F,G:data", "N0CALL>APRS,A,DIGI*,D,E,F,G:data",
         true, 0x12,
-        false, "substitute_explicit_address,preempt_truncate",
+        false, false, "substitute_explicit_address,preempt_truncate",
         {{
             {"C", 0x00},
             {nullptr, 0x00},
@@ -780,7 +781,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "48", "DIGI", "N0CALL>APRS,A,B,C,D*,E,F,G:data", "N0CALL>APRS,A,B,C,D*,E,F,G:data",
         false, 0x12,
-        false, "substitute_explicit_address,preempt_truncate",
+        false, false, "substitute_explicit_address,preempt_truncate",
         {{
             {"C", 0x00},
             {nullptr, 0x00},
@@ -796,7 +797,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "49", "DIGI", "N0CALL>APRS,A*,B,C,D,E,F,G:data", "N0CALL>APRS,A*,B,C,D,E,F,G:data",
         false, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -812,7 +813,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "50", "DIGI", "N0CALL>APRS,CITYA*,CITYB,CITYC,CITYD,CITYE:data", "N0CALL>APRS,CITYA*,CITYB,CITYC,CITYD,CITYE:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"CITYD", 0x00},
             {nullptr, 0x00},
@@ -828,7 +829,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "51", "DIGI", "N0CALL>APRS,CITYA*,CITYB,CITYC,CITYD,CITYE:data", "N0CALL>APRS,DIGI*,CITYE:data",
         true, 0x14,
-        false, "preempt_drop,substitute_explicit_address",
+        false, false, "preempt_drop,substitute_explicit_address",
         {{
             {"CITYD", 0x00},
             {nullptr, 0x00},
@@ -844,7 +845,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "52", "DIGI", "N0CALL>APRS,CITYA*,CITYB,CITYC,CITYD,CITYE:data", "N0CALL>APRS,CITYA,CITYB,CITYC,DIGI*,CITYE:data",
         true, 0x18,
-        false, "preempt_mark,substitute_explicit_address",
+        false, false, "preempt_mark,substitute_explicit_address",
         {{
             {"CITYD", 0x00},
             {nullptr, 0x00},
@@ -860,7 +861,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "53", "DIGI", "N0CALL>APRS,CITYA*,CITYB,CITYC,CITYD,CITYE:data", "N0CALL>APRS,CITYA,DIGI*,CITYE:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"CITYD", 0x00},
             {nullptr, 0x00},
@@ -876,7 +877,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "54", "DIGI", "N0CALL>DIGI,WIDE1-1:data", "N0CALL>DIGI,WIDE1-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -892,7 +893,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "55", "DIGI", "DIGI>N0CALL,WIDE1-1:data", "DIGI>N0CALL,WIDE1-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -908,7 +909,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "56", "DIGI", "N0CALL>DIGI,WIDE1-1:data", "N0CALL>DIGI,WIDE1-1:data",
         false, 0x00,
-        true, "route_self",
+        true, false, "route_self",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -924,7 +925,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "57", "DIGI", "FROM>APRS,CALL,WIDE1-1,DIGI*,WIDE2-1:data", "FROM>APRS,CALL,WIDE1-1,DIGI*,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -940,7 +941,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "58", "ROUTE", "FROM>APRS,DIGI*,ROUTE,WIDE1-1,WIDE2-1:data", "FROM>APRS,DIGI*,ROUTE,WIDE1-1,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -956,7 +957,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "59", "ROUTE", "FROM>APRS,DIGI,CALL*,ROUTE,WIDE1-1,WIDE2-1:data", "FROM>APRS,DIGI,CALL*,ROUTE,WIDE1-1,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {"CALL", 0x00},
@@ -972,7 +973,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "60", "ROUTE", "FROM>APRS,DIGI*,CALL,ROUTE,WIDE1-1,WIDE2-1:data", "FROM>APRS,DIGI*,CALL,ROUTE,WIDE1-1,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {"CALL", 0x00},
@@ -988,7 +989,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "61", "ROUTE", "FROM>APRS,DIGI,CALL,ROUTE*,WIDE1-1,WIDE2-1:data", "FROM>APRS,DIGI,CALL,ROUTE*,WIDE1-1,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {"CALL", 0x00},
@@ -1004,7 +1005,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "62", "ROUTE", "FROM>APRS,DIGI,ROUTE*,CALL,WIDE1-1,WIDE2-1:data", "FROM>APRS,DIGI,ROUTE*,CALL,WIDE1-1,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {"CALL", 0x00},
@@ -1020,7 +1021,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "63", "DIGI", "DIGI>APRS,CALL,WIDE1,DIGI,WIDE2*:data", "DIGI>APRS,CALL,WIDE1,DIGI,WIDE2*:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -1036,7 +1037,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "64", "DIGI", "DIGI>APRS,CALL,WIDE1-1,WIDE2-2,DIGI,WIDE3*:data", "DIGI>APRS,CALL,WIDE1-1,WIDE2-2,DIGI,WIDE3*:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -1052,7 +1053,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "65", "DIGI", "DIGI>APRS,CALL,WIDE1-1,WIDE2-2,DIGI,WIDE3-2*:data", "DIGI>APRS,CALL,WIDE1-1,WIDE2-2,DIGI,WIDE3-2*:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -1068,7 +1069,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "66", "DIGI", "DIGI>APRS,CALLA,WIDE1-1,ROUTE*,WIDE2-2,DIGI,WIDE3-2,CALLB*:data", "DIGI>APRS,CALLA,WIDE1-1,ROUTE*,WIDE2-2,DIGI,WIDE3-2,CALLB*:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -1084,7 +1085,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "67", "DIGI", "N0CALL>APRS,WIDE2-2,DIGI:data", "N0CALL>APRS,WIDE2-2,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1100,7 +1101,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "68", "DIGI", "N0CALL>APRS,CALL,DIGI:data", "N0CALL>APRS,CALL,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1116,7 +1117,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "69", "DIGI", "N0CALL>APRS:data", "N0CALL>APRS:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1132,7 +1133,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "70", "DIGI", "N0CALL>APRS,WIDE2-0:data", "N0CALL>APRS,WIDE2-0:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1148,7 +1149,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "71", "DIGI", "N0CALL>APRS,WIDE8-2:data", "N0CALL>APRS,WIDE8-2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE8", 0x00},
             {"WIDE", 0x04},
@@ -1164,7 +1165,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "72", "DIGI", "N0CALL>APRS,WIDE2:data", "N0CALL>APRS,WIDE2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -1180,7 +1181,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "73", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,WIDE2-3:data",
         false, 0x00,
-        true, "reject_limit_exceeding_n_N_address",
+        true, false, "reject_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1196,7 +1197,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "74", "DIGI", "N0CALL>APRS,CALL:data", "N0CALL>APRS,DIGI,CALL*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"CALL", 0x00},
             {nullptr, 0x00},
@@ -1212,7 +1213,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "75", "DIGI", "N0CALL>APRS,CALLA*,CALLB,CALLC:data", "N0CALL>APRS,CALLA,DIGI,CALLB*,CALLC:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"CALLB", 0x00},
             {nullptr, 0x00},
@@ -1228,7 +1229,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "76", "DIGIA", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA*,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1244,7 +1245,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "77", "DIGIB", "N0CALL>APRS,DIGIA*,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB*,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1260,7 +1261,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "78", "DIGIC", "N0CALL>APRS,DIGIA,DIGIB*,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB,DIGIC*,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1276,7 +1277,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "79", "DIGID", "N0CALL>APRS,DIGIA,DIGIB,DIGIC*,DIGID,DIGIE,DIGIF,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID*,DIGIE,DIGIF,DIGIG,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1292,7 +1293,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "80", "DIGIE", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID*,DIGIE,DIGIF,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE*,DIGIF,DIGIG,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1308,7 +1309,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "81", "DIGIF", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE*,DIGIF,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF*,DIGIG,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1324,7 +1325,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "82", "DIGIG", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF*,DIGIG,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG*,DIGIH:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1340,7 +1341,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "83", "DIGIH", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG*,DIGIH:data", "N0CALL>APRS,DIGIA,DIGIB,DIGIC,DIGID,DIGIE,DIGIF,DIGIG,DIGIH*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1356,7 +1357,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "84", "DIGI", "N0CALL>APRS,DIGI,ROUTE:data", "N0CALL>APRS,DIGI*,ROUTE:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1372,7 +1373,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "85", "DIGI", "N0CALL>APRS,CALL*,DIGI:data", "N0CALL>APRS,CALL,DIGI*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1388,7 +1389,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "86", "DIGI", "N0CALL>APRS,CALL,DIGI:data", "N0CALL>APRS,CALL,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1404,7 +1405,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "87", "DIGI", "N0CALL>APRS,DIGI,WIDE1-1:data", "N0CALL>APRS,DIGI*,WIDE1-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -1420,7 +1421,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "88", "N0CALL", "N0CALL>APRS,N0CALL:data", "N0CALL>APRS,N0CALL*:data",
         true, 0x00,
-        true, "route_self",
+        true, false, "route_self",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1436,7 +1437,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "89", "DIGI", "N0CALL>APRS,RELAY*,DIGI:data", "N0CALL>APRS,RELAY,DIGI*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -1452,7 +1453,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "90", "ROUTER", "DIGI>APRS,ROUTER:data", "DIGI>APRS,ROUTER*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1468,7 +1469,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "91", "ROUTER", "DIGI>APRS,DIGI,ROUTER:data", "DIGI>APRS,ROUTER,DIGI*,ROUTER:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1484,7 +1485,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "92", "ROUTER", "DIGI>APRS,DIGI,ROUTER:data", "DIGI>APRS,ROUTER*,ROUTER:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1500,7 +1501,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "93", "ROUTER", "DIGI>APRS,DIGI,ROUTER:data", "DIGI>APRS,ROUTER*,ROUTER:data",
         true, 0x11,
-        false, "preempt_front,substitute_explicit_address",
+        false, false, "preempt_front,substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1516,7 +1517,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "94", "ROUTER", "DIGI>APRS,ROUTER,DIGI:data", "DIGI>APRS,ROUTER*,DIGI:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1532,7 +1533,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "95", "ROUTER", "DIGI>APRS,DIGI*,ROUTER:data", "DIGI>APRS,DIGI*,ROUTER:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1548,7 +1549,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "96", "ROUTER", "DIGI>APRS,ROUTER*,DIGI:data", "DIGI>APRS,ROUTER*,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1564,7 +1565,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "97", "ROUTER", "DIGI>APRS,A*,DIGI,ROUTER:data", "DIGI>APRS,A*,DIGI,ROUTER:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"A", 0x00},
             {"DIGI", 0x00},
@@ -1580,7 +1581,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "98", "ROUTER", "DIGI>APRS,A*,DIGI,ROUTER:data", "DIGI>APRS,A*,DIGI,ROUTER:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {"A", 0x00},
@@ -1596,7 +1597,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "99", "ROUTER", "DIGI>APRS,DIGI,ROUTER:data", "DIGI>APRS,ROUTER,DIGI*,ROUTER:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1612,7 +1613,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "100", "ROUTER", "DIGI>APRS,A,DIGI,ROUTER:data", "DIGI>APRS,ROUTER,DIGI*,ROUTER:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1628,7 +1629,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "101", "ROUTER", "DIGI>APRS,A,DIGI,ROUTER:data", "DIGI>APRS,ROUTER*,ROUTER:data",
         true, 0x14,
-        false, "preempt_drop,substitute_explicit_address",
+        false, false, "preempt_drop,substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -1644,7 +1645,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "102", "DIGI", "N0CALL>APRS,DIGI,ROUTER:data", "N0CALL>APRS,DIGI*,ROUTER:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"ROUTER", 0x00},
             {nullptr, 0x00},
@@ -1660,7 +1661,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "103", "DIGI", "N0CALL>APRS,WIDE,WIDE,WIDE:data", "N0CALL>APRS,DIGI,WIDE*,WIDE,WIDE:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -1676,7 +1677,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "104", "DIGI", "N0CALL>APRS,WIDE,WIDE,WIDE:data", "N0CALL>APRS,DIGI*,WIDE,WIDE:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -1692,7 +1693,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "105", "DIGI", "N0CALL>APRS,WIDE*,WIDE,WIDE:data", "N0CALL>APRS,WIDE*,WIDE,WIDE:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -1708,7 +1709,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "106", "DIGI", "N0CALL>APRS,WIDE*,WIDE,WIDE:data", "N0CALL>APRS,WIDE*,WIDE,WIDE:data",
         false, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -1724,7 +1725,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "107", "DIGI", "N0CALL>APRS,DIGI,WIDE*,WIDE,WIDE:data", "N0CALL>APRS,DIGI,WIDE*,WIDE,WIDE:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -1740,7 +1741,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "108", "DIGI", "N0CALL>APRS,WIDE1-2:data", "N0CALL>APRS,DIGI*,WIDE1-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -1756,7 +1757,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "109", "DIGI", "N0CALL>APRS,WIDE1-0:data", "N0CALL>APRS,WIDE1-0:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -1772,7 +1773,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "110", "DIGI", "N0CALL>APRS,WIDE1-2:data", "N0CALL>APRS,DIGI*,WIDE1-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -1788,7 +1789,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "111", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,DIGI,WIDE1*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -1804,7 +1805,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "112", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -1820,7 +1821,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "113", "DIGI", "N0CALL>APRS,WIDE1-2:data", "N0CALL>APRS,DIGI*,WIDE1-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -1836,7 +1837,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "114", "DIGI", "N0CALL>APRS,RELAY-1,WIDE1-1:data", "N0CALL>APRS,RELAY-1,WIDE1-1:data",
         false, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1852,7 +1853,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "115", "DIGI", "N0CALL>APRS,RELAY-1*,WIDE1-1:data", "N0CALL>APRS,RELAY-1,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1868,7 +1869,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "116", "DIGI", "N0CALL>APRS,RELAY-1,WIDE1-1:data", "N0CALL>APRS,RELAY-1,WIDE1-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1884,7 +1885,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "117", "DIGI", "N0CALL>APRS,RELAY-1*,WIDE1-1:data", "N0CALL>APRS,RELAY-1,DIGI,WIDE1*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1900,7 +1901,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "118", "DIGI", "N0CALL>APRS,RELAY-1*,WIDE1-1:data", "N0CALL>APRS,RELAY-1,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1916,7 +1917,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "119", "DIGI", "N0CALL>APRS,RELAY-1,WIDE1-1:data", "N0CALL>APRS,RELAY-1,WIDE1-1:data",
         false, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1932,7 +1933,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "120", "DIGI", "N0CALL>APRS,RELAY,WIDE1-1:data", "N0CALL>APRS,DIGI,RELAY*,WIDE1-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"RELAY", 0x00},
             {"WIDE", 0x02},
@@ -1948,7 +1949,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "121", "DIGI", "N0CALL>APRS,A,B,C,D,E,F*,WIDE2-1:data", "N0CALL>APRS,A,B,C,D,E,F,DIGI,WIDE2*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1964,7 +1965,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "122", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-1:data", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1980,7 +1981,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "123", "DIGI", "N0CALL>APRS,A,B,C,D,E,F*,WIDE2-1:data", "N0CALL>APRS,A,B,C,D,E,F,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -1996,7 +1997,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "124", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-1:data", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-1:data",
         false, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2012,7 +2013,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "125", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,WIDE2-3:data",
         false, 0x00,
-        true, "reject_limit_exceeding_n_N_address",
+        true, false, "reject_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2028,7 +2029,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "126", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,DIGI*,WIDE2-2:data",
         true, 0x00,
-        true, "reject_limit_exceeding_n_N_address",
+        true, false, "reject_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2044,7 +2045,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "127", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,DIGI*,WIDE2-2:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2060,7 +2061,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "128", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,DIGI*:data",
         true, 0x00,
-        true, "trap_limit_exceeding_n_N_address",
+        true, false, "trap_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2076,7 +2077,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "129", "DIGI", "N0CALL>APRS,CALL*,WIDE2-3:data", "N0CALL>APRS,CALL,DIGI*:data",
         true, 0x00,
-        true, "trap_limit_exceeding_n_N_address",
+        true, false, "trap_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2092,7 +2093,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "130", "DIGI", "N0CALL>APRS,CALLA*,CALLB*,WIDE2-3:data", "N0CALL>APRS,CALLA,CALLB,DIGI*:data",
         true, 0x00,
-        true, "trap_limit_exceeding_n_N_address",
+        true, false, "trap_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2108,7 +2109,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "131", "DIGI", "N0CALL>APRS,WIDE2-3,WIDE1-2:data", "N0CALL>APRS,WIDE2-3,WIDE1-2:data",
         false, 0x00,
-        true, "reject_limit_exceeding_n_N_address",
+        true, false, "reject_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2124,7 +2125,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "132", "DIGI", "N0CALL>APRS,WIDE2-3,WIDE1-2:data", "N0CALL>APRS,DIGI*,WIDE1-2:data",
         true, 0x00,
-        true, "trap_limit_exceeding_n_N_address",
+        true, false, "trap_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2140,7 +2141,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "133", "DIGI", "N0CALL>APRS,WIDE1-3:data", "N0CALL>APRS,DIGI*,WIDE1-2:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2156,7 +2157,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "134", "ROUTE", "N0CALL>APRS,CALL*,WIDE1-2:data", "N0CALL>APRS,CALL,ROUTE*,WIDE1-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2172,7 +2173,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "135", "ROUTER", "N0CALL>APRS,CALL,DIGI*,WIDE1-1:data", "N0CALL>APRS,CALL,DIGI,ROUTER*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2188,7 +2189,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "136", "ROUTER", "N0CALL>APRS,CALL,DIGI,WIDE2*:data", "N0CALL>APRS,CALL,DIGI,WIDE2*:data",
         false, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2204,7 +2205,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "137", "ROUTER", "N0CALL>APRS,WIDE2-2,qAR,N0CALL:data", "N0CALL>APRS,ROUTER*,WIDE2-1,qAR,N0CALL:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2220,7 +2221,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "138", "DIGI", "N0CALL>APRS,ROUTER*,WIDE2-1,qAR,N0CALL:data", "N0CALL>APRS,ROUTER,DIGI*,qAR,N0CALL:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2236,7 +2237,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "139", "REPEATER", "N0CALL>APRS,ROUTER,DIGI*,qAR,N0CALL:data", "N0CALL>APRS,ROUTER,DIGI*,qAR,N0CALL:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2252,7 +2253,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "140", "DIGI", "N0CALL>APRS,CALL,WIDE1*,WIDE2-2:data", "N0CALL>APRS,CALL,WIDE1,DIGI*,WIDE2-1:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2268,7 +2269,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "141", "DIGI", "N0CALL>APRS,CALL,WIDE1*,WIDE2-2:data", "N0CALL>APRS,CALL,WIDE1,DIGI*,WIDE2-1:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2284,7 +2285,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "142", "DIGI", "N0CALL>APRS,CALL,WIDE1*,WIDE2-1:data", "N0CALL>APRS,CALL,WIDE1,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2300,7 +2301,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "143", "DIGI", "N0CALL>APRS,WIDE3-3,CALL:data", "N0CALL>APRS,WIDE3-3,CALL:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2316,7 +2317,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "144", "DIGI", "N0CALL>APRS,WIDE1-1,DIGI:data", "N0CALL>APRS,WIDE1-1,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2332,7 +2333,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "145", "DIGI", "N0CALL>APRS,WIDE1-1,DIGI:data", "N0CALL>APRS,WIDE1-1,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2348,7 +2349,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "146", "DIGI", "N0CALL>APRS,WIDE2-2,DIGI:data", "N0CALL>APRS,WIDE2-2,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2364,7 +2365,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "147", "DIGI", "N0CALL>APRS,DIGI,WIDE2-2:data", "N0CALL>APRS,DIGI*,WIDE2-2:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2380,7 +2381,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "148", "DIGI", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6*,WIDE3-3:data", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,DIGI*,WIDE3-2:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2396,7 +2397,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "149", "DIGI", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7*,WIDE3-3:data", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7*,WIDE3-2:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2412,7 +2413,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "150", "DIGI", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7*,WIDE3-1:data", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7,WIDE3*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2428,7 +2429,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "151", "DIGI", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7*,WIDE3-1:data", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2444,7 +2445,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "152", "DIGI", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7*,WIDE3-1:data", "N0CALL>APRS,CALL1,CALL2,CALL3,CALL4,CALL5,CALL6,CALL7,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2460,7 +2461,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "153", "DIGI", "N0CALL>APRS,WIDE3-1,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI*,A,B,C,D,E,F,G:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2476,7 +2477,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "154", "DIGI", "N0CALL>APRS,WIDE3-1,A,B,C,D,E,F,G:data", "N0CALL>APRS,WIDE3*,A,B,C,D,E,F,G:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2492,7 +2493,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "155", "DIGI", "N0CALL>APRS,WIDE3-2,A,B,C,D,E,F,G:data", "N0CALL>APRS,WIDE3-1,A,B,C,D,E,F,G:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -2508,7 +2509,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "156", "CALLA", "N0CALL>APRS,WIDE2-2,CALLB:data", "N0CALL>APRS,WIDE2-2,CALLB:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2524,7 +2525,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "157", "DIGI", "DIGI>APRS,WIDE2-2,DIGI:data", "DIGI>APRS,WIDE2-2,DIGI:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2540,7 +2541,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "158", "DIGI", "N0CALL>APRS,WIDE2-2,CALL:data", "N0CALL>APRS,DIGI,CALL*,WIDE2-2:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {"CALL", 0x00},
             {"WIDE", 0x04},
@@ -2556,7 +2557,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "159", "DIGI", "N0CALL>APRS,WIDE1,WIDE2-2:data", "N0CALL>APRS,WIDE1,WIDE2-2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2572,7 +2573,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "160", "DIGI", "N0CALL>APRS,WIDE1,WIDE2-2:data", "N0CALL>APRS,WIDE1,DIGI*,WIDE2-1:data",
         true, 0x80,
-        false, "skip_complete_n_N_address",
+        false, false, "skip_complete_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2588,7 +2589,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "161", "DIGI", "N0CALL>APRS,WIDE1,WIDE2-2:data", "N0CALL>APRS,WIDE1,WIDE2-2:data",
         false, 0x80,
-        false, "skip_complete_n_N_address",
+        false, false, "skip_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2604,7 +2605,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "162", "DIGI", "N0CALL>APRS,WIDE1,WIDE2,WIDE3-2:data", "N0CALL>APRS,WIDE1,WIDE2,DIGI*,WIDE3-1:data",
         true, 0x80,
-        false, "skip_complete_n_N_address",
+        false, false, "skip_complete_n_N_address",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -2620,7 +2621,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "163", "DIGI", "N0CALL>APRS,WIDE1,WIDE2,WIDE3-1:data", "N0CALL>APRS,WIDE1,WIDE2,DIGI,WIDE3*:data",
         true, 0x80,
-        false, "skip_complete_n_N_address",
+        false, false, "skip_complete_n_N_address",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -2636,7 +2637,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "164", "DIGI", "N0CALL>APRS,WIDE1,WIDE2,WIDE3-1:data", "N0CALL>APRS,WIDE1,WIDE2,DIGI*:data",
         true, 0xc0,
-        false, "skip_complete_n_N_address,substitute_complete_n_N_address",
+        false, false, "skip_complete_n_N_address,substitute_complete_n_N_address",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -2652,7 +2653,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "165", "DIGI", "N0CALL>APRS,WIDE1,WIDE2*,WIDE3-1:data", "N0CALL>APRS,WIDE1,WIDE2,DIGI*:data",
         true, 0xc0,
-        false, "skip_complete_n_N_address,substitute_complete_n_N_address",
+        false, false, "skip_complete_n_N_address,substitute_complete_n_N_address",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -2668,7 +2669,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "166", "DIGI", "N0CALL>APRS,WIDE1*,WIDE2,WIDE3-1:data", "N0CALL>APRS,WIDE1,WIDE2,DIGI*:data",
         true, 0xc0,
-        false, "skip_complete_n_N_address,substitute_complete_n_N_address",
+        false, false, "skip_complete_n_N_address,substitute_complete_n_N_address",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -2684,7 +2685,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "167", "DIGI", "N0CALL>APRS,WIDE1,WIDE2-2:data", "N0CALL>APRS,WIDE1,WIDE2-2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2700,7 +2701,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "168", "DIGI", "N0CALL>APRS,WIDE1,WIDE2:data", "N0CALL>APRS,WIDE1,WIDE2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2716,9 +2717,9 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "169", "DIGI", "N0CALL>APRS,FOOBAR2-2:data", "N0CALL>APRS,DIGI*,FOOBAR2-1:data",
         true, 0x00,
-        false, "",
+        false, true, "",
         {{
-            {"FOOBAR", 0x0c},
+            {nullptr, 0x00},
             {nullptr, 0x00},
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -2727,14 +2728,14 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
             {nullptr, 0x00},
             {nullptr, 0x00}
         }},
-        1
+        0
     },
     {
         "170", "DIGI", "N0CALL>APRS,FOOBAR2-1:data", "N0CALL>APRS,DIGI,FOOBAR2*:data",
         true, 0x00,
-        false, "",
+        false, true, "",
         {{
-            {"FOOBAR", 0x0c},
+            {nullptr, 0x00},
             {nullptr, 0x00},
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -2743,12 +2744,12 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
             {nullptr, 0x00},
             {nullptr, 0x00}
         }},
-        1
+        0
     },
     {
         "171", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,WIDE1*:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2764,7 +2765,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "172", "DIGI", "N0CALL>APRS,WIDE2-2:data", "N0CALL>APRS,WIDE2-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2780,7 +2781,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "173", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,WIDE1*:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2796,7 +2797,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "174", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,WIDE1*:data",
         true, 0x60,
-        false, "traceless_n_N_route,substitute_complete_n_N_address",
+        false, false, "traceless_n_N_route,substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2812,7 +2813,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "175", "DIGI", "N0CALL>APRS,CALL*,WIDE1-2,WIDE2-1:data", "N0CALL>APRS,CALL*,WIDE1-1,WIDE2-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2828,7 +2829,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "176", "DIGI", "N0CALL>APRS,CALL1*,CALL2*,WIDE2-2:data", "N0CALL>APRS,CALL1*,CALL2*,WIDE2-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2844,7 +2845,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "177", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2860,7 +2861,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "178", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,WIDE1*:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2876,7 +2877,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "179", "DIGI", "N0CALL>APRS,RELAY2-3:data", "N0CALL>APRS,RELAY2-2:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"RELAY", 0x04},
             {nullptr, 0x00},
@@ -2892,7 +2893,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "180", "DIGI", "N0CALL>APRS,CALL*,WIDE1-2:data", "N0CALL>APRS,CALL*,WIDE1-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"CALL", 0x00},
             {"WIDE", 0x02},
@@ -2908,7 +2909,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "181", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,WIDE2-3*:data",
         true, 0x20,
-        true, "traceless_n_N_route,trap_limit_exceeding_n_N_address",
+        true, false, "traceless_n_N_route,trap_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -2924,7 +2925,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "182", "DIGI", "N0CALL>APRS,,WIDE1-2:data", "N0CALL>APRS,WIDE1-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2940,7 +2941,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "183", "DIGI", "N0CALL>APRS,WIDE1-1,WIDE2-2,WIDE3-1:data", "N0CALL>APRS,WIDE1*,WIDE2-2,WIDE3-1:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x0e},
             {nullptr, 0x00},
@@ -2956,7 +2957,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "184", "DIGI", "N0CALL>APRS,WIDE1,WIDE2-2:data", "N0CALL>APRS,WIDE1,WIDE2-1:data",
         true, 0xa0,
-        false, "traceless_n_N_route,skip_complete_n_N_address",
+        false, false, "traceless_n_N_route,skip_complete_n_N_address",
         {{
             {"WIDE", 0x06},
             {nullptr, 0x00},
@@ -2972,7 +2973,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "185", "DIGI", "N0CALL>APRS,WIDE2-2,CALL:data", "N0CALL>APRS,WIDE2-2,CALL:data",
         false, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -2988,7 +2989,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "186", "DIGI", "N0CALL>APRS,WIDE1-1:data", "N0CALL>APRS,WIDE1*:data",
         true, 0x60,
-        false, "traceless_n_N_route,substitute_complete_n_N_address",
+        false, false, "traceless_n_N_route,substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3004,7 +3005,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "187", "DIGI", "N0CALL>APRS,DIGI,WIDE1-2:data", "N0CALL>APRS,DIGI*,WIDE1-2:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3020,7 +3021,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "188", "DIGI", "N0CALL>APRS,A,B,C,D,E,F*,WIDE3-3:data", "N0CALL>APRS,A,B,C,D,E,F*,WIDE3-2:data",
         true, 0x20,
-        false, "traceless_n_N_route",
+        false, false, "traceless_n_N_route",
         {{
             {"WIDE", 0x08},
             {nullptr, 0x00},
@@ -3036,7 +3037,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "189", "DIGI", "N0CALL>APRS,WIDE2-3:data", "N0CALL>APRS,WIDE2-3:data",
         false, 0x20,
-        true, "traceless_n_N_route,reject_limit_exceeding_n_N_address",
+        true, false, "traceless_n_N_route,reject_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3052,7 +3053,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "190", "DIGI", "N0CALL>APRS,WIDE2-2:data", "N0CALL>APRS,WIDE2-1:data",
         true, 0x20,
-        true, "traceless_n_N_route,reject_limit_exceeding_n_N_address",
+        true, false, "traceless_n_N_route,reject_limit_exceeding_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3068,7 +3069,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "191", "DIGI2-3", "N0CALL>APRS,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-3*:data",
         true, 0x04,
-        false, "preempt_drop",
+        false, false, "preempt_drop",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3084,7 +3085,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "192", "DIGI", "N0CALL>APRS,DIGI-7:data", "N0CALL>APRS,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3100,7 +3101,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "193", "DIGI", "N0CALL>APRS,DIGI-7:data", "N0CALL>APRS,DIGI,DIGI-7*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3116,7 +3117,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "194", "DIGI1-1", "N0CALL>APRS,DIGI1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI1-1*,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI1", 0x00},
             {nullptr, 0x00},
@@ -3132,7 +3133,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "195", "DIGI1-1", "N0CALL>APRS,DIGI1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI1-1,DIGI1*,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI1", 0x00},
             {nullptr, 0x00},
@@ -3148,7 +3149,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "196", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G,I:data", "N0CALL>APRS,DIGI*,B,C,D,E,F,G,I:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -3164,7 +3165,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "197", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G,I:data", "N0CALL>APRS,DIGI*,B,C,D,E,F,G,I:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -3180,7 +3181,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "198", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G:data", "N0CALL>APRS,DIGI,A*,B,C,D,E,F,G:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"A", 0x00},
             {nullptr, 0x00},
@@ -3196,7 +3197,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "199", "DIGI1-1", "N0CALL>APRS,DIGI,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI1-1,DIGI*,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3212,7 +3213,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "200", "DIGI1-1", "N0CALL>APRS,DIGI,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI1-1*,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3228,7 +3229,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "201", "DIGI1-1", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI1-1*,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -3244,7 +3245,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "202", "", "N0CALL>APRS,DIGI,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3260,7 +3261,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "203", "DIGI", "N0CALL>APRS,DIGI,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI*,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3276,7 +3277,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "204", "DIGI2-3", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-3*,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2:data",
         true, 0x01,
-        false, "preempt_front",
+        false, false, "preempt_front",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -3292,7 +3293,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "205", "DIGI2-1", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-1*,DIGI2-2,DIGI2-3:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {nullptr, 0x00},
             {nullptr, 0x00},
@@ -3308,7 +3309,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "206", "DIGI2-1", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-1*,DIGI2-1,DIGI2-2,DIGI2-3:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"DIGI1", 0x00},
             {nullptr, 0x00},
@@ -3324,7 +3325,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "207", "DIGI2-1", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-1*,DIGI2-2,DIGI2-3:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"DIGI", 0x02},
             {nullptr, 0x00},
@@ -3340,7 +3341,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "208", "DIGI2-1", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-1*,DIGI2-2,DIGI2-3:data",
         true, 0x02,
-        false, "preempt_truncate",
+        false, false, "preempt_truncate",
         {{
             {"DIGI", 0x02},
             {nullptr, 0x00},
@@ -3356,7 +3357,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "209", "DIGI2-1", "N0CALL>APRS,DIGI1-1,DIGI1-2,DIGI1-3,DIGI2-1,DIGI2-2,DIGI2-3:data", "N0CALL>APRS,DIGI2-1*,DIGI2-2,DIGI2-3:data",
         true, 0x12,
-        false, "preempt_truncate,substitute_explicit_address",
+        false, false, "preempt_truncate,substitute_explicit_address",
         {{
             {"DIGI", 0x02},
             {nullptr, 0x00},
@@ -3372,7 +3373,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "210", "DIGI", "N0CALL>APRS,WIDE1-3:data", "N0CALL>APRS,DIGI,WIDE1-3*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE1", 0x00},
             {nullptr, 0x00},
@@ -3388,7 +3389,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "211", "DIGI", "N0CALL>APRS,WIDE1-3:data", "N0CALL>APRS,WIDE1-3:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE1", 0x00},
             {nullptr, 0x00},
@@ -3404,7 +3405,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "212", "DIGI", "N0CALL>APRS,WIDE1-3:data", "N0CALL>APRS,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"WIDE1", 0x00},
             {nullptr, 0x00},
@@ -3420,7 +3421,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "213", "DIGI-7", "N0CALL>APRS,DIGI-7:data", "N0CALL>APRS,DIGI-7*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3436,7 +3437,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "214", "DIGI-7", "N0CALL>APRS,DIGI-7:data", "N0CALL>APRS,DIGI-7*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3452,7 +3453,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "215", "DIGI1-1", "N0CALL>APRS,DIGI1-1:data", "N0CALL>APRS,DIGI1-1*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3468,7 +3469,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "216", "DIGI-8", "N0CALL>APRS,DIGI-7:data", "N0CALL>APRS,DIGI-7:data",
         false, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3484,7 +3485,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "217", "DIGI1-1", "N0CALL>APRS,DIGI-1:data", "N0CALL>APRS,DIGI-1:data",
         false, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3500,7 +3501,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "218", "DIGI1-1", "N0CALL>APRS,DIGI-1:data", "N0CALL>APRS,DIGI-1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3516,7 +3517,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "219", "DIGI1-1", "N0CALL>APRS,DIGI1:data", "N0CALL>APRS,DIGI1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3532,7 +3533,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "220", "DIGI1-1", "N0CALL>APRS,CALL*,DIGI1:data", "N0CALL>APRS,CALL*,DIGI1:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"DIGI", 0x00},
             {nullptr, 0x00},
@@ -3548,7 +3549,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "221", "DIGI", "N0CALL>APRS,,WIDE1-1:data", "N0CALL>APRS,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3564,7 +3565,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "222", "DIGI", "N0CALL>APRS,WIDE1-1:", "N0CALL>APRS,DIGI*:",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3580,7 +3581,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "223", "DIGI", "N0CALL>APRS,WIDE1-1", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3596,7 +3597,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "224", "DIGI", "APRS,WIDE1-1", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3612,7 +3613,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "225", "DIGI", "N0CALL>APRS", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3628,7 +3629,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "226", "DIGI", "N0CALL>APRS:", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3644,7 +3645,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "227", "DIGI", "N0CALL>APRS,:", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3660,7 +3661,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "228", "DIGI", "N0CALL", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3676,7 +3677,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "229", "A", "N0CALL>APRS,A,B,C,D,E,F,G,H,I,J:data", "N0CALL>APRS,A,B,C,D,E,F,G,H,I,J:data",
         false, 0x00,
-        true, "strict",
+        true, false, "strict",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3692,7 +3693,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "230", "DIGI", "N0CALL>APRS,CALL--1*,WIDE1-1:data", "N0CALL>APRS,CALL--1,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3708,7 +3709,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "231", "DIGI", "N0CALL>APRS,CALL--1,WIDE1-1:data", "N0CALL>APRS,CALL--1,WIDE1-1:data",
         false, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3724,7 +3725,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "232", "DIGI", "N0CALL>APRS,CALL--1,WIDE1-1:data", "N0CALL>APRS,CALL--1,WIDE1-1:data",
         false, 0x40,
-        true, "substitute_complete_n_N_address,strict",
+        true, false, "substitute_complete_n_N_address,strict",
         {{
             {"WIDE", 0x02},
             {nullptr, 0x00},
@@ -3740,7 +3741,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "233", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3756,7 +3757,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "234", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,G,WIDE2-2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3772,7 +3773,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "235", "DIGI", "N0CALL>APRS,WIDE2-2,A,B,C,D,E,F,G:data", "N0CALL>APRS,WIDE2-1,A,B,C,D,E,F,G:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3788,7 +3789,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "236", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3804,7 +3805,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "237", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-1:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3820,7 +3821,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "238", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-1:data", "N0CALL>APRS,A,B,C,D,E,F,G,DIGI*:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3836,7 +3837,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "239", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,G*,WIDE2-1:data", "N0CALL>APRS,A,B,C,D,E,F,G,WIDE2*:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3852,7 +3853,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "240", "DIGI", "N0CALL>APRS,A,B,C,D,E,F*,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,DIGI*,WIDE2-1:data",
         true, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3868,7 +3869,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "241", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-2:data",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3884,7 +3885,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "242", "DIGI", "N0CALL>APRS,A,B,C,D,E,F*,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,DIGI*,WIDE2-1:data",
         true, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3900,7 +3901,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "243", "DIGI", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-2:data", "N0CALL>APRS,A,B,C,D,E,F,WIDE2-2:data",
         false, 0x40,
-        false, "substitute_complete_n_N_address",
+        false, false, "substitute_complete_n_N_address",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},
@@ -3916,7 +3917,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "244", "DIGI", "N0CALL>APRS,A,B,C,D,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -3932,7 +3933,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "245", "DIGI", "N0CALL>APRS,A,B,C,D*,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -3948,7 +3949,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "246", "DIGI", "N0CALL>APRS,A,B,C*,D*,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -3964,7 +3965,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "247", "DIGI", "N0CALL>APRS,A,B*,C*,D*,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -3980,7 +3981,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "248", "DIGI", "N0CALL>APRS,A*,B*,C*,D*,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -3996,7 +3997,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "249", "DIGI", "N0CALL>APRS,A*,B,C*,D,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -4012,7 +4013,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "250", "DIGI", "N0CALL>APRS,A*,B,C,D,E*,F:data", "N0CALL>APRS,A,B,C,D,E,DIGI*:data",
         true, 0x10,
-        false, "substitute_explicit_address",
+        false, false, "substitute_explicit_address",
         {{
             {"F", 0x00},
             {nullptr, 0x00},
@@ -4028,7 +4029,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "251", "DIGI", "N0CALL>APRS,WIDE2-2", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -4044,7 +4045,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "252", "DIGI", "N0CALL>APRS,WIDE2-2", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -4060,7 +4061,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "253", "DIGI", "N0CALL>APRS,WIDE2-2", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE2", 0x00},
             {nullptr, 0x00},
@@ -4076,7 +4077,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "254", "DIGI", "N0CALL>APRS,WIDE2-2", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE0", 0x00},
             {nullptr, 0x00},
@@ -4092,7 +4093,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "255", "DIGI", "N0CALL>APRS,WIDE2-2", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x00},
             {nullptr, 0x00},
@@ -4108,7 +4109,7 @@ static const std::array<ConfRoute, 256> CONF_ROUTES = {{
     {
         "256", "DIGI", "N0CALL>APRS,WIDE2-2", "",
         false, 0x00,
-        false, "",
+        false, false, "",
         {{
             {"WIDE", 0x04},
             {nullptr, 0x00},

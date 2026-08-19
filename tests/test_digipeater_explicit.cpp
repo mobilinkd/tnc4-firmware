@@ -365,6 +365,41 @@ TEST(n_N_class_mask_generic_wide_serves_all) {
 }
 
 // ============================================================================
+// Operator-classification cross-product (ADR-0008): the firmware classifies
+// an alias by its operator-marked class mask, NOT by string syntax.  The
+// conformance generator can only express syntax-derived classification
+// (routes.json), so these hand-written vectors exercise the operator model
+// directly via make_alias(call, classes).
+// ============================================================================
+
+TEST(classification_relay_operator_nN) {
+    // Operator marks RELAY as an n-N alias (class 2) even though "RELAY"
+    // has no trailing class digit and would be explicit under syntax rules.
+    // The firmware must serve it as n-N when the class mask says so.
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("RELAY", 0x04);  // operator: n-N class 2 (bit 2)
+    TestDigipeater digi(cfg);
+    auto buf = parse_ax25_packet("N0CALL>APRS,RELAY2-2:hello");
+    auto result = digi.can_repeat(buf.data(), buf.size());
+    EXPECT_TRUE(result != nullptr);
+    passed++;
+}
+
+TEST(classification_wide_operator_explicit) {
+    // Operator marks plain WIDE as an explicit alias (classes == 0), not
+    // n-N.  It must match the full callsign "WIDE" only, and must NOT match
+    // the n-N wire form WIDE1-1.
+    auto cfg = make_test_config("DIGI", 0);
+    cfg.aliases[0] = make_alias("WIDE", 0);  // operator: explicit
+    TestDigipeater digi(cfg);
+    auto b_explicit = parse_ax25_packet("N0CALL>APRS,WIDE:hello");
+    auto b_nN = parse_ax25_packet("N0CALL>APRS,WIDE1-1:hello");
+    EXPECT_TRUE(digi.can_repeat(b_explicit.data(), b_explicit.size()) != nullptr);
+    EXPECT_TRUE(digi.can_repeat(b_nN.data(), b_nN.size()) == nullptr);
+    passed++;
+}
+
+// ============================================================================
 // Disabled-mode stubs: routing modes not implemented in firmware.
 // These exist so the test output shows the gap; no assertion runs.
 // ============================================================================

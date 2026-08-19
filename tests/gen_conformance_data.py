@@ -103,17 +103,33 @@ def map_options(options_str):
 
 
 def collect_aliases(route):
-    """Return an ordered list of (call, classes) aliases.
+    """Return an ordered list of (call, classes) aliases and an
+    ``unrepresentable`` flag.
 
     n-N aliases are merged by prefix (their class masks OR'd); explicit
     aliases are deduplicated by callsign.  Order follows the reference:
     path (auto-classified), then explicit_addresses, then n_N_addresses.
+
+    ``unrepresentable`` is set when an n-N alias's routing prefix is too
+    long to fit in an AX.25 6-character callsign field.  A prefix of length
+    6 plus a class digit (``PREFIXn``) needs 7 characters on the wire, which
+    is impossible -- e.g. libaprsroute's ``FOOBAR2``/``FOOBAR3`` (prefix
+    ``FOOBAR``).  Such a route cannot be expressed in the byte-level harness
+    and is marked SKIP by the runner (same class as unsupported-mode skips),
+    rather than silently truncated into an incorrect alias.
     """
     aliases = []
     n_N_by_prefix = {}
     explicit_seen = set()
+    unrepresentable = False
 
     def add_nn(prefix, mask):
+        nonlocal unrepresentable
+        if len(prefix) >= 6:
+            # PREFIXn would need 7 chars on the wire (6-char callsign field +
+            # 1 class digit).  Unrepresentable in AX.25 -- flag the route.
+            unrepresentable = True
+            return
         if prefix in n_N_by_prefix:
             n_N_by_prefix[prefix][1] |= mask
         else:
@@ -154,7 +170,7 @@ def collect_aliases(route):
     result = list(aliases)
     for prefix, (_, mask) in n_N_by_prefix.items():
         result.append((prefix, mask))
-    return result[:MAX_ALIASES]
+    return result[:MAX_ALIASES], unrepresentable
 
 
 def cstr(s):
@@ -204,6 +220,7 @@ def main():
     out.append("    bool routed;")
     out.append("    uint8_t routing_mode;")
     out.append("    bool has_unsupported;")
+    out.append("    bool unrepresentable;  // n-N prefix too long for AX.25 callsign field")
     out.append("    const char* options_str;")
     out.append("    std::array<AliasEntry, %d> aliases;" % MAX_ALIASES)
     out.append("    uint8_t alias_count;")
@@ -219,12 +236,14 @@ def main():
         routed = r.get("routed") == "true"
         options = r.get("options") or ""
         routing_mode, has_unsupported = map_options(options)
-        aliases = collect_aliases(r)
+        aliases, unrepresentable = collect_aliases(r)
 
         out.append("    {")
         out.append("        %s, %s, %s, %s," % (cstr(rid), cstr(address), cstr(original), cstr(routed_pkt)))
         out.append("        %s, 0x%02x," % ("true" if routed else "false", routing_mode))
-        out.append("        %s, %s," % ("true" if has_unsupported else "false", cstr(options)))
+        out.append("        %s, %s, %s," % ("true" if has_unsupported else "false",
+                                           "true" if unrepresentable else "false",
+                                           cstr(options)))
         out.append("        {{")
         for i in range(MAX_ALIASES):
             if i < len(aliases):

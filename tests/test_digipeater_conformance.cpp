@@ -217,6 +217,14 @@ static std::string run_conf_route(const ConfRoute& r,
     // Skip routes with unsupported options -- we can't map them to our flags.
     if (has_unsupported_options(r)) return "SKIP";
 
+    // Skip routes whose n-N alias prefix is too long to fit an AX.25
+    // 6-character callsign field (e.g. libaprsroute's FOOBAR2/FOOBAR3 ->
+    // prefix "FOOBAR", which would need 7 wire chars for PREFIXn).  These
+    // are not routing bugs: on the wire "FOOBAR2-2" cannot exist.  Marked
+    // SKIP by the generator (cases 169, 170), same class as unsupported
+    // modes -- see plan 2026-08-18 section 2E.
+    if (r.unrepresentable) return "SKIP";
+
     // Skip routes where address is empty (no mycall configured).
     if (!r.address || r.address[0] == '\0') return "SKIP";
 
@@ -353,9 +361,12 @@ int main(int argc, char* argv[])
         if (result == "SKIP") {
             skipped++;
             if (show_all) {
+                const char* why = has_unsupported_options(r) ? "unsupported options"
+                                  : r.unrepresentable ? "unrepresentable alias prefix"
+                                  : "no mycall / empty address";
                 std::cout << "  SKIP  id=" << r.id
                           << " opts=" << (r.options_str ? r.options_str : "")
-                          << " (unsupported options)\n";
+                          << " (" << why << ")\n";
             }
         } else if (result == "PASS") {
             passed++;

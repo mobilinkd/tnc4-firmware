@@ -57,23 +57,45 @@ using TestDigipeater = DigipeaterCore<TestPolicy, TestConfig>;
 
 // Encode a single AX.25 call string (e.g., "WIDE1" or "WIDE1-1") to 7 bytes.
 // Returns [6 shifted chars][SSID byte with H-bit=0, C-bit=0].
+//
+// SSID range handling (harness-side guard, added 2026-08-18): AX.25 SSIDs are
+// 0..15. A malformed input such as "CALL--1" parses to std::stoi("-1") == -1,
+// which static_cast<uint8_t>(-1) == 0xFF, and (0xFF << 1) == 0xFE -- the H-bit
+// (bit 7) gets set BY ACCIDENT.  That made the firmware treat an unmarked
+// malformed address as already-used and route past it (routes 230/231 diverge).
+// We clamp the SSID into 0..15 so the H-bit is driven ONLY by the literal '*'
+// in the packet string.  With a clean encoding the firmware's Decision-1
+// blocking rule correctly refuses to route a packet whose first-unused address
+// is the malformed non-matching CALL--1 (case 231: not routed -> PASS), while
+// the marked CALL--1* (case 230) is still seen as used and the route proceeds.
+// This matches the libaprsroute reference, which routes 230 but not 231.
 inline std::array<uint8_t, 7> encode_call(const std::string& call)
 {
     std::array<uint8_t, 7> result{};
     // Split on '-' for SSID
     std::string callsign = call;
-    uint8_t ssid = 0;
+    int ssid = 0;
     auto dash = call.find('-');
     if (dash != std::string::npos) {
         callsign = call.substr(0, dash);
-        ssid = static_cast<uint8_t>(std::stoi(call.substr(dash + 1)));
+        try {
+            ssid = std::stoi(call.substr(dash + 1));
+        } catch (...) {
+            ssid = 0;  // malformed SSID tail -> treat as 0 (clamped below)
+        }
     }
+    // Clamp to the valid AX.25 SSID range 0..15.  Out-of-range values
+    // (e.g. the "-1" from "CALL--1") collapse to 0 rather than producing a
+    // spurious H-bit via wraparound.
+    if (ssid < 0) ssid = 0;
+    if (ssid > 15) ssid = 15;
+    uint8_t ssid_u = static_cast<uint8_t>(ssid);
     // Encode callsign: 6 chars, shifted left 1, space-padded
     for (size_t i = 0; i < 6; i++) {
         result[i] = static_cast<uint8_t>((i < callsign.size() ? callsign[i] : ' ') << 1);
     }
     // SSID byte: (ssid << 1), H-bit=0, C-bit=0
-    result[6] = (ssid << 1);
+    result[6] = (ssid_u << 1);
     return result;
 }
 
