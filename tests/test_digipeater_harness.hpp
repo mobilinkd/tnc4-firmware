@@ -142,16 +142,23 @@ inline std::vector<uint8_t> parse_ax25_packet(const std::string& packet)
         }
     }
 
-    // Set H-bit on addresses marked with *
+    // Set H-bit on used addresses.  TNC-2 display convention (APRS
+    // Digipeater Algorithm, WB2OSZ, sec. 1): '*' appears only after the LAST
+    // used digipeater and every earlier path address is IMPLIED used.  The
+    // wire rule is H-bit prefix closure: all addresses up to and including
+    // the starred one carry the H-bit ("There should never be a used address
+    // after an unused address").  So we set the H-bit on every address up to
+    // and including the last starred one.
+    size_t last_star = path.size();  // sentinel: no star found
     for (size_t pi = 0; pi < path.size(); pi++) {
-        bool has_star = false;
+        if (!path[pi].empty() && path[pi].back() == '*') last_star = pi;
+    }
+    for (size_t pi = 0; pi < path.size(); pi++) {
         std::string clean = path[pi];
-        if (!clean.empty() && clean.back() == '*') {
-            has_star = true;
-            clean.pop_back();
-        }
+        if (!clean.empty() && clean.back() == '*') clean.pop_back();
         auto bytes = encode_call(clean);
-        if (has_star) bytes[6] |= 0x80;  // Set H-bit
+        if (last_star < path.size() && pi <= last_star)
+            bytes[6] |= 0x80;  // H-bit: used prefix up to last star
         // Set C-bit on the last address
         if (pi == path.size() - 1) bytes[6] |= 0x01;
         result.insert(result.end(), bytes.begin(), bytes.end());
@@ -176,10 +183,12 @@ inline std::vector<uint8_t> parse_ax25_packet(const std::string& packet)
 //
 // DISPLAY DEVIATION (deliberate): The standard TNC-2 monitoring format shows
 // '*' only after the LAST used digipeater; earlier used addresses are implied
-// (see APRS-Digipeater-Algorithm.pdf, WB2OSZ).  This function instead shows '*'
-// on EVERY address whose H-bit is set.  On the wire, all used digis carry the
-// H-bit -- the single-asterisk form is a display convention, not a wire rule.
-// Showing all H-bit addresses is more useful for routing verification.
+// (see APRS-Digipeater-Algorithm.pdf, WB2OSZ, sec. 1).  On the wire, ALL used
+// digis carry the H-bit -- prefix closure is the wire rule ("there should
+// never be a used address after an unused address"), while the single-asterisk
+// form is purely display.  This function shows '*' on EVERY address whose
+// H-bit is set, which is more useful for routing verification and matches the
+// wire truth rather than the display convention.
 inline std::string ax25_packet_to_string(const uint8_t* buf, size_t len)
 {
     if (len < 14) return "(too short)";

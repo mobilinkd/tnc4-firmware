@@ -274,6 +274,36 @@ static std::string run_conf_route(const ConfRoute& r,
             out_expected_str = r.routed ? "routed" : "not routed";
             return "DIVERGENCE";
         }
+        // Option A model divergences: the firmware follows the Direwolf/APRS
+        // routing model (APRS Digipeater Algorithm, WB2OSZ, sec. 4.1: act on
+        // the FIRST UNUSED path entry only; sec. 2.2: aliases match callsign
+        // AND SSID exactly).  The libaprsroute reference instead searches
+        // from the last-used address for the first match of (mycall OR
+        // explicit alias), aborts when that first match is already marked,
+        // and matches explicit aliases SSID-insensitively.  Those reference
+        // behaviors have no basis in the spec and are rejected (Option A).
+        // Accepted divergences:
+        //   58, 95  -- mycall sits at first-unused behind used hops;
+        //              spec routes, reference's last-used search suppresses.
+        //   59, 105 -- alias at first-unused behind a used hop; spec routes,
+        //              reference suppresses on the marked first match.
+        //   91      -- mycall deeper in path; spec says act only on
+        //              first-unused (no match) so no route; reference routes
+        //              via its last-used search.
+        //   193,210 -- explicit-alias SSID-insensitive reference matches
+        //              (DIGI vs DIGI-7, WIDE1 vs WIDE1-3); spec sec. 2.2 is
+        //              SSID-exact, firmware correctly does not route.
+        if (r.id && (std::strcmp(r.id, "58") == 0 ||
+                     std::strcmp(r.id, "59") == 0 ||
+                     std::strcmp(r.id, "91") == 0 ||
+                     std::strcmp(r.id, "95") == 0 ||
+                     std::strcmp(r.id, "105") == 0 ||
+                     std::strcmp(r.id, "193") == 0 ||
+                     std::strcmp(r.id, "210") == 0)) {
+            out_actual_str = we_routed ? "routed" : "not routed";
+            out_expected_str = r.routed ? "routed" : "not routed";
+            return "DIVERGENCE";
+        }
         // All other routing-decision mismatches are real failures, not
         // substitution divergences.  Substitution only affects the
         // rewritten path contents, never the can_repeat verdict.

@@ -329,7 +329,11 @@ struct DigipeaterCore : Policy
                             uint8_t* class_digit = nullptr) const
     {
         if (!a.is_nN()) {
-            return match_shifted_callsign(addr, a.call);
+            // Explicit alias: full callsign + SSID equality.  An explicit
+            // alias "ROUTE" (SSID 0) matches only "ROUTE"/"ROUTE*", not
+            // "ROUTE-2".  (SSID-insensitive matching was a bug: it let
+            // "DIGI" match "DIGI-1" and "WIDE8" match "WIDE8-2".)
+            return match_shifted_callsign(addr, a.call, true);
         }
 
         // Prefix length: the alias callsign up to the first NUL/space.
@@ -352,25 +356,6 @@ struct DigipeaterCore : Policy
         }
         if (class_digit) *class_digit = cls;
         return true;
-    }
-
-    /**
-     * True when the 7-byte address at `addr` matches any configured, in-use
-     * explicit (non-n-N) alias.  Used to suppress self-routing when the
-     * reference's first-match-from-last-used search would terminate on a
-     * marked explicit alias instead of our own callsign (cases 58/59/95).
-     *
-     * Note: SSID-insensitive, matching the current explicit-alias matcher.
-     * The reference compares SSID too; that tightening is deficiency-B work.
-     */
-    bool explicit_alias_matches(const uint8_t* addr) const
-    {
-        for (size_t i = 0; i < kiss::NUMBER_OF_ALIASES; i++) {
-            const auto& a = cfg_.aliases[i];
-            if (!a.is_configured() || !a.in_use() || a.is_nN()) continue;
-            if (alias_call_matches(a, addr)) return true;
-        }
-        return false;
     }
 
     /**
@@ -465,22 +450,17 @@ struct DigipeaterCore : Policy
 
         // Self-routing (deficiency A): when the first unused address is our
         // own callsign (SSID-aware), digipeat it -- mark the H-bit and do
-        // NOT insert (it is already our own address).  The reference's
-        // find_unused_router_address_index matches the router address itself.
-        //
-        // The reference searches from the LAST USED address and returns the
-        // FIRST match of (mycall OR explicit alias); a marked first match
-        // terminates the search with "no route".  So self-routing is
-        // suppressed when the last-used address (first_unused - 7) matches a
-        // configured explicit alias: that marked alias is the first match,
-        // not our own callsign (conformance cases 58/59/95).  The
-        // first_unused < find_info_offset() guard skips the degenerate case
-        // where every address is already used.
+        // NOT insert (it is already our own address).  This follows the
+        // Direwolf/APRS model: act on the first *unused* path entry.  We do
+        // NOT replicate libaprsroute's "marked-first-match suppresses" rule
+        // (search from the last-used address; a marked first match aborts
+        // routing) -- that rule diverges from every real digipeater on the
+        // network and is rejected (plan: Option A).  Conformance cases 59,
+        // 105, 91 are accepted divergences against the libaprsroute reference
+        // for exactly this reason.
         if (first_unused < find_info_offset() &&
             match_shifted_callsign(linear_buf_.data() + first_unused,
-                                   cfg_.mycall, true) &&
-            !(first_unused > 14 &&
-              explicit_alias_matches(linear_buf_.data() + first_unused - 7))) {
+                                   cfg_.mycall, true)) {
             match_type_ = MatchType::Mycall;
             match_addr_offset_ = first_unused;
             match_is_nN_ = false;

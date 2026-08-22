@@ -54,11 +54,13 @@ static int disabled = 0;
 
 TEST(can_repeat_exact_callsign_match) {
     auto cfg = make_test_config("DIGI");
-    cfg.aliases[0] = make_alias("CALLD", 0);  // explicit alias
+    cfg.aliases[0] = make_alias("CALLD", 0);  // explicit alias (SSID 0)
     TestDigipeater digi(cfg);
 
-    // Explicit alias CALLD should match in the path.
-    auto buf = parse_ax25_packet("N0CALL>APRS,CALLD-1:hello");
+    // Explicit alias CALLD (SSID 0) matches CALLD in the path.
+    // NOTE: CALLD-1 (SSID 1) must NOT match -- explicit alias matching is
+    // SSID-sensitive (Option A).  Use SSID-0 form here.
+    auto buf = parse_ax25_packet("N0CALL>APRS,CALLD:hello");
     auto result = digi.can_repeat(buf.data(), buf.size());
     EXPECT_TRUE(result != nullptr);
     passed++;

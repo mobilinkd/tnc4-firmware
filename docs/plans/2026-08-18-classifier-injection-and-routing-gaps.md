@@ -243,20 +243,40 @@ NOT covered (must be added, per section 1-2):
    - The mycall-in-path guard now uses "first address after the last used
      address" (was "first unmarked from offset 14"), matching the
      reference's find_unused_router_address_index.  This also fixed 107.
-   - Self-routing is suppressed when the last-used address matches a
+   - ~~Self-routing is suppressed when the last-used address matches a
      configured explicit alias (marked first-match suppresses; cases
-     58/59/95).  58 and 95 fixed.  59 surfaced as a genuine deficiency-B
-     case (was passing by accident via the old guard's over-rejection) --
-     it is the same "first marked match suppresses" rule as 105/107.
-3. **Explicit-alias routing** (deficiency B, 9 cases + D, 1 case):
-   SSID-sensitive match + require-unmarked + insert-before/mark;
-   mycall-in-path guard re-examined for explicit routing (91);
-   full-path substitute (197).
+     58/59/95).~~ RETRACTED under Option A (2026-08-21): that suppression
+     replicated libaprsroute's "marked-first-match suppresses" rule, which
+     has no basis in the APRS spec (Digipeater Algorithm sec. 4.1 acts on
+     the FIRST UNUSED address only; Direwolf implements exactly this).
+3. **Option A reclassification + SSID-exact aliases** (deficiency B,
+   DONE): Rob's ruling -- where libaprsroute diverges from Direwolf /
+   the APRS spec on a real interoperability question, side with Direwolf.
+   Changes:
+   - Explicit alias matching is now SSID-exact (spec sec. 2.2: "The
+     address alias includes any SSID").  Fixes 71 (`WIDE8` vs `WIDE8-2`),
+     211 (`WIDE1` vs `WIDE1-3`), 218 (`DIGI` vs `DIGI-1`).  Test
+     can_repeat_exact_callsign_match updated to assert SSID mismatch is
+     rejected.
+   - Harness H-bit encoding fixed to prefix-closure semantics (TNC-2
+     display convention: '*' marks only the LAST used digi, all earlier
+     path addresses are IMPLIED used on the wire).  This moved 58/95 from
+     accidental-pass to genuine Option-A divergences and exposed 193/210
+     as reference SSID-insensitivity cases.
+   - Documented divergences (reference wrong per spec, firmware right):
+     58, 59, 91, 95, 105 (last-used search / marked-first-match
+     suppression), 193, 210 (explicit-alias SSID insensitivity).
 4. **skip_complete mark-and-keep** (deficiency C, 6 cases): exhausted
-   alias consumed (mark H, keep in path), per Decision 2.
+   alias consumed (mark H, keep in path), per Decision 2.  Remaining
+   conformance failures 160, 162-166 are exactly this mode plus the
+   substitute interaction (165).
 5. **Full update-array rewrite** (existing 2026-07-31 plan) -- mechanical
-   unification; expected residual: Pattern C/D substitution divergences
-   only.
+   unification; expected residual: substitution rewrite (197) and
+   Pattern C/D substitution divergences only.
+
+Current status after step 3: conformance 113 passed / 20 documented
+divergences / 7 failed / 116 skipped; smoke 9/9; explicit 32/0.  The 7
+failures are feature gaps (steps 4-5), not routing-model defects.
 
 After each step: run all three suites, report exact delta.  Any
 previously-passing test that fails = stop and report.
