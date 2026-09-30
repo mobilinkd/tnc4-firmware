@@ -41,7 +41,7 @@ those, issue the bulk commands below.
 |---------|-------|-----------|-----------------|
 | EXT_GET_ALIASES | 0xC1 0x88 | Host→TNC | Reply: alias count (1 byte) |
 | EXT_GET_ALIAS | 0xC1 0x89 | Host→TNC | Request: index (1 byte). Reply: see Alias reply below |
-| EXT_SET_ALIAS | 0xC1 0x8A | Host→TNC | Request: index (1 byte) + alias (11 bytes). Reply: EXT_OK |
+| EXT_SET_ALIAS | 0xC1 0x8A | Host→TNC | Request: index (1 byte) + alias (9 bytes). Reply: EXT_OK |
 | EXT_GET_DIGIPEATER | 0xC1 0x8B | Host→TNC | Reply: 3 bytes (enabled, routing_mode, dedupe_seconds) |
 | EXT_GET_BEACON_SLOTS | 0xC1 0x8C | Host→TNC | Reply: beacon slot count (1 byte) |
 | EXT_GET_BEACON | 0xC1 0x8D | Host→TNC | Request: slot (1 byte). Reply: see Beacon reply below |
@@ -151,14 +151,14 @@ response is never over-allocated.
 
 ## Routing mode flags
 
-`routing_mode` is a bitmask (KissTypes.hpp:76-81):
+`routing_mode` is a bitmask (KissTypes.hpp:125-131):
 
 | Flag | Value | Description | Implemented |
 |------|-------|-------------|-------------|
-| ROUTING_PREEMPT_FRONT | 0x01 | On alias-scan miss, find mycall in path, mark H-bit, truncate after it | Yes |
-| ROUTING_PREEMPT_TRUNCATE | 0x02 | Move mycall behind last used, erase middle | No |
-| ROUTING_PREEMPT_DROP | 0x04 | Erase all addresses in front of ours | No |
-| ROUTING_PREEMPT_MARK | 0x08 | Mark our address used, leave path as-is | No |
+| ROUTING_PREEMPT_FRONT | 0x01 | Reserved — preemptive digipeating was removed (see below) | No |
+| ROUTING_PREEMPT_TRUNCATE | 0x02 | Reserved | No |
+| ROUTING_PREEMPT_DROP | 0x04 | Reserved | No |
+| ROUTING_PREEMPT_MARK | 0x08 | Reserved | No |
 | ROUTING_SKIP_COMPLETE | 0x80 | Drop already-completed addresses from the path | Yes |
 
 Bits 0x10, 0x20, and 0x40 are reserved (unused).
@@ -168,12 +168,15 @@ Direwolf unconditionally replaces an exhausted n-N alias (SSID decremented
 to 0) with the digipeater's callsign.  No implementation in the field runs
 without substitution.
 
-The config app may expose SKIP_COMPLETE as a toggle.  The preempt bits
-(0x01-0x08) are reserved and ignored.
+Preemptive digipeating is not implemented and the preempt bits are
+reserved and ignored.  The config app must treat bits 0x01-0x08 as
+read-only zeros.  The app may expose SKIP_COMPLETE as a toggle.
 
-## Alias auto-classification
+## Alias classification (ADR-0008)
 
-When an alias is configured, its callsign prefix determines routing behavior:
-prefixes WIDE, TRACE, RELAY, ECHO, GATE, and TEMP are treated as n-N aliases
-(SSID decrement + H-bit marking); anything else is treated as an explicit
-(substitute) alias.
+Alias classification is operator-marked, not auto-detected.  The class mask
+in the alias flags byte (bits 1-7) determines behavior: a non-zero class
+mask marks the alias as n-N (the callsign field is a routing prefix, e.g.
+`WIDE`, and the alias performs SSID decrement + H-bit marking); a zero
+class mask marks it explicit (full-callsign match and substitution).
+There is no prefix list in the firmware.
